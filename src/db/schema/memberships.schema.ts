@@ -1,0 +1,96 @@
+import { pgTable, uuid, text, timestamp, integer, boolean, numeric, jsonb, date, pgEnum } from 'drizzle-orm/pg-core';
+import { organizations } from './org.schema';
+import { members } from './members.schema';
+import { users } from './auth.schema';
+
+// ── Enums ─────────────────────────────────────────────────────────────────────
+
+export const membershipStatusEnum = pgEnum('membership_status', [
+  'PENDING',
+  'ACTIVE',
+  'FROZEN',
+  'EXPIRED',
+  'CANCELLED',
+]);
+
+export const membershipEventTypeEnum = pgEnum('membership_event_type', [
+  'CREATED',
+  'ACTIVATED',
+  'RENEWED',
+  'UPGRADED',
+  'DOWNGRADED',
+  'FROZEN',
+  'RESUMED',
+  'EXTENDED',
+  'CANCELLED',
+  'TRANSFERRED',
+]);
+
+// ── Membership Plans ──────────────────────────────────────────────────────────
+
+export const membershipPlans = pgTable('membership_plans', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: uuid('organization_id')
+    .notNull()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  description: text('description'),
+  durationDays: integer('duration_days').notNull(),
+  price: numeric('price', { precision: 12, scale: 2 }).notNull(),
+  gstPercent: numeric('gst_percent', { precision: 5, scale: 2 }).notNull().default('18'),
+  joiningFee: numeric('joining_fee', { precision: 12, scale: 2 }).notNull().default('0'),
+  ptSessionsIncluded: integer('pt_sessions_included').notNull().default(0),
+  features: jsonb('features').default('[]'), // string[] list of features
+  status: text('status', { enum: ['ACTIVE', 'INACTIVE'] }).notNull().default('ACTIVE'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── Member Memberships ────────────────────────────────────────────────────────
+
+export const memberMemberships = pgTable('member_memberships', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  memberId: uuid('member_id')
+    .notNull()
+    .references(() => members.id, { onDelete: 'cascade' }),
+  planId: uuid('plan_id').references(() => membershipPlans.id),
+  planName: text('plan_name').notNull(), // denormalized snapshot
+  startDate: date('start_date').notNull(),
+  endDate: date('end_date').notNull(),
+  status: membershipStatusEnum('status').notNull().default('PENDING'),
+  freezeStartDate: date('freeze_start_date'),
+  freezeEndDate: date('freeze_end_date'),
+  frozenDays: integer('frozen_days').notNull().default(0),
+  ptSessionsTotal: integer('pt_sessions_total').notNull().default(0),
+  ptSessionsUsed: integer('pt_sessions_used').notNull().default(0),
+  idempotencyKey: text('idempotency_key').unique(), // for renewal/mutation dedup
+  notes: text('notes'),
+  createdBy: uuid('created_by').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── Membership Events (Immutable Ledger) ──────────────────────────────────────
+
+export const membershipEvents = pgTable('membership_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  membershipId: uuid('membership_id').references(() => memberMemberships.id),
+  memberId: uuid('member_id')
+    .notNull()
+    .references(() => members.id, { onDelete: 'cascade' }),
+  eventType: membershipEventTypeEnum('event_type').notNull(),
+  actorId: uuid('actor_id').references(() => users.id),
+  actorName: text('actor_name'), // denormalized snapshot
+  notes: text('notes'),
+  metadata: jsonb('metadata').default('{}'), // plan snapshot, dates, etc.
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── Type Exports ──────────────────────────────────────────────────────────────
+
+export type MembershipPlan = typeof membershipPlans.$inferSelect;
+export type NewMembershipPlan = typeof membershipPlans.$inferInsert;
+export type MemberMembership = typeof memberMemberships.$inferSelect;
+export type NewMemberMembership = typeof memberMemberships.$inferInsert;
+export type MembershipEvent = typeof membershipEvents.$inferSelect;
+export type NewMembershipEvent = typeof membershipEvents.$inferInsert;
