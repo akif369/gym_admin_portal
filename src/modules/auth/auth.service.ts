@@ -8,6 +8,7 @@ import {
   users,
   userSessions,
   passwordResetTokens,
+  organizations,
 } from '../../db/schema/index';
 import { roles, userPermissions, DEFAULT_ROLE_PERMISSIONS } from '../../db/schema/rbac.schema';
 import { eq, and, isNull, gt, lt, inArray } from 'drizzle-orm';
@@ -64,6 +65,20 @@ export async function loginService(
     throw AppError.unauthorized(
       ErrorCode.ACCOUNT_LOCKED,
       `Account is locked. Try again in ${minutesLeft} minutes.`,
+    );
+  }
+
+  // Check if organization is suspended
+  const [org] = await db
+    .select({ status: organizations.status })
+    .from(organizations)
+    .where(eq(organizations.id, user.organizationId))
+    .limit(1);
+
+  if (org && org.status === 'SUSPENDED') {
+    throw AppError.unauthorized(
+      ErrorCode.ACCOUNT_INACTIVE,
+      'Your organization account has been suspended. Please contact support.'
     );
   }
 
