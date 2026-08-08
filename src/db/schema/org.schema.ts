@@ -16,6 +16,7 @@ export const organizations = pgTable('organizations', {
   gstNumber: text('gst_number'),
   currency: text('currency').default('INR').notNull(),
   timezone: text('timezone').default('Asia/Kolkata').notNull(),
+  status: text('status', { enum: ['ACTIVE', 'SUSPENDED'] }).notNull().default('ACTIVE'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

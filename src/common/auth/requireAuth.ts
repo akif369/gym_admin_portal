@@ -28,6 +28,20 @@ export const requireAuth = async (
     // Verifies the JWT signature and decodes the payload
     const decoded = await request.jwtVerify<JwtAccessPayload>();
 
+    // ── Super Admin Bypass ───────────────────────────────────────────────────
+    if (decoded.role === 'SUPER_ADMIN') {
+      request.user = {
+        userId: decoded.userId,
+        email: decoded.email,
+        role: decoded.role,
+        orgId: decoded.orgId,
+        branchId: decoded.branchId,
+        sessionId: decoded.sessionId,
+        permissions: ['*'], // Super Admin has implicit global permissions
+      };
+      return;
+    }
+
     // Validate the session still exists and is not revoked
     const [session] = await db
       .select()

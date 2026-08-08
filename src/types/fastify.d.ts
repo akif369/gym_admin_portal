@@ -8,7 +8,7 @@ import '@fastify/jwt';
 export interface JwtAccessPayload {
   userId: string;
   email: string;
-  role: string;
+  role: string | 'SUPER_ADMIN';
   orgId: string;
   branchId?: string | null;
   sessionId: string;
