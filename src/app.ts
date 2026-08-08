@@ -31,7 +31,7 @@ import { reportsRoutes } from './modules/reports/reports.routes';
 
 export async function buildApp() {
   const fastify = Fastify({
-    logger: logger as any,
+    loggerInstance: logger as any,
     requestIdHeader: 'x-request-id',
     requestIdLogLabel: 'requestId',
     genReqId: () => `req_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
