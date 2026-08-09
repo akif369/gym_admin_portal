@@ -32,7 +32,7 @@ import { adminRoutes } from './modules/admin/admin.routes';
 
 export async function buildApp() {
   const fastify = Fastify({
-    loggerInstance: logger as any,
+    loggerInstance: logger,
     requestIdHeader: 'x-request-id',
     requestIdLogLabel: 'requestId',
     genReqId: () => `req_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
