@@ -73,7 +73,7 @@ export async function updateOrganizationStatus(orgId: string, status: 'ACTIVE' |
     .returning();
     
   if (!org) {
-    throw AppError.notFound(ErrorCode.RESOURCE_NOT_FOUND, 'Organization not found');
+    throw AppError.notFound(ErrorCode.ORG_NOT_FOUND, 'Organization not found');
   }
   return org;
 }
@@ -103,7 +103,7 @@ export async function resetOrganizationOwnerPassword(orgId: string, newPassword:
     .limit(1);
 
   if (!owner) {
-    throw AppError.notFound(ErrorCode.RESOURCE_NOT_FOUND, 'No OWNER user found for this organization');
+    throw AppError.notFound(ErrorCode.STAFF_NOT_FOUND, 'No OWNER user found for this organization');
   }
 
   const hashedPassword = await argon2.hash(newPassword);
