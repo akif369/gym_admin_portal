@@ -52,7 +52,7 @@ export const attendanceController = {
     return reply.send({ log });
   },
   async memberHistory(request: FastifyRequest<{ Params: { memberId: string } }>, reply: FastifyReply) {
-    const result = await getMemberAttendanceService(request.params.memberId, request.query as any);
+    const result = await getMemberAttendanceService(request.user.orgId, request.params.memberId, request.query as any);
     return reply.send(result);
   },
   async peakHours(request: FastifyRequest, reply: FastifyReply) {

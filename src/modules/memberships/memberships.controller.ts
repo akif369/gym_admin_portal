@@ -29,11 +29,11 @@ export const membershipsController = {
     return reply.send({ plan });
   },
   async getMemberMemberships(request: FastifyRequest<{ Params: { memberId: string } }>, reply: FastifyReply) {
-    const memberships = await getMemberMembershipsService(request.params.memberId);
+    const memberships = await getMemberMembershipsService(request.user.orgId, request.params.memberId);
     return reply.send({ memberships });
   },
   async getMembershipEvents(request: FastifyRequest<{ Params: { memberId: string } }>, reply: FastifyReply) {
-    const events = await getMembershipEventsService(request.params.memberId);
+    const events = await getMembershipEventsService(request.user.orgId, request.params.memberId);
     return reply.send({ events });
   },
   async listEvents(request: FastifyRequest, reply: FastifyReply) {

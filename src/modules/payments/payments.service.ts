@@ -75,9 +75,14 @@ export async function recordPaymentService(
     const [m] = await db
       .select({ firstName: members.firstName, lastName: members.lastName })
       .from(members)
-      .where(eq(members.id, data.memberId))
+      .where(and(
+        eq(members.id, data.memberId),
+        eq(members.organizationId, orgId),
+        isNull(members.deletedAt),
+      ))
       .limit(1);
-    if (m) memberName = `${m.firstName} ${m.lastName}`;
+    if (!m) throw AppError.notFound(ErrorCode.MEMBER_NOT_FOUND, 'Member not found');
+    memberName = `${m.firstName} ${m.lastName}`;
   }
 
   const gstAmount = data.gstAmount ?? 0;
@@ -274,7 +279,14 @@ export async function getInvoiceService(orgId: string, invoiceId: string) {
   return { ...invoice, lineItems };
 }
 
-export async function getMemberPaymentsService(memberId: string, query: Record<string, unknown>) {
+export async function getMemberPaymentsService(orgId: string, memberId: string, query: Record<string, unknown>) {
+  const [member] = await db
+    .select({ id: members.id })
+    .from(members)
+    .where(and(eq(members.id, memberId), eq(members.organizationId, orgId), isNull(members.deletedAt)))
+    .limit(1);
+  if (!member) throw AppError.notFound(ErrorCode.MEMBER_NOT_FOUND, 'Member not found');
+
   const { page, pageSize } = parsePagination(query);
   const { limit, offset } = paginationToLimitOffset({ page, pageSize });
 

@@ -46,7 +46,7 @@ export const paymentsController = {
     return reply.send(html);
   },
   async memberPayments(request: FastifyRequest<{ Params: { memberId: string } }>, reply: FastifyReply) {
-    const result = await getMemberPaymentsService(request.params.memberId, request.query as any);
+    const result = await getMemberPaymentsService(request.user.orgId, request.params.memberId, request.query as any);
     return reply.send(result);
   },
   async webhook(_request: FastifyRequest, reply: FastifyReply) {

@@ -320,6 +320,11 @@ export async function updateMemberStatusService(
   status: string,
   actorId: string,
 ) {
+  const allowedStatuses = ['ACTIVE', 'FROZEN', 'EXPIRED', 'ARCHIVED'] as const;
+  if (!allowedStatuses.includes(status as (typeof allowedStatuses)[number])) {
+    throw AppError.badRequest(ErrorCode.BAD_REQUEST, `Unsupported member status: ${status}`);
+  }
+
   const [updated] = await db
     .update(members)
     .set({ status: status as any, updatedAt: new Date() })
@@ -384,7 +389,9 @@ export async function getMemberActivityService(orgId: string, memberId: string) 
 
 // ── Member Measurements ───────────────────────────────────────────────────────
 
-export async function getMemberMeasurementsService(memberId: string) {
+export async function getMemberMeasurementsService(orgId: string, memberId: string) {
+  await getMemberService(orgId, memberId);
+
   return db
     .select()
     .from(memberMeasurements)
@@ -426,6 +433,7 @@ export async function updateMemberHealthProfileService(
   orgId: string,
   memberId: string,
   data: Partial<typeof memberHealthProfiles.$inferInsert>,
+  actorId: string,
 ) {
   await getMemberService(orgId, memberId);
 
@@ -441,12 +449,28 @@ export async function updateMemberHealthProfileService(
       .set({ ...data, updatedAt: new Date() })
       .where(eq(memberHealthProfiles.id, existing.id))
       .returning();
+    await auditLog({
+      organizationId: orgId,
+      actorId,
+      action: AuditAction.MEMBER_UPDATED,
+      entityType: 'member',
+      entityId: memberId,
+      description: 'Sensitive health profile updated',
+    });
     return updated;
   } else {
     const [created] = await db
       .insert(memberHealthProfiles)
       .values({ memberId, ...data })
       .returning();
+    await auditLog({
+      organizationId: orgId,
+      actorId,
+      action: AuditAction.MEMBER_UPDATED,
+      entityType: 'member',
+      entityId: memberId,
+      description: 'Sensitive health profile created',
+    });
     return created;
   }
 }

@@ -81,7 +81,12 @@ export async function updatePlanStatusService(orgId: string, planId: string, sta
 
 // ── Member Memberships ────────────────────────────────────────────────────────
 
-export async function getMemberMembershipsService(memberId: string) {
+export async function getMemberMembershipsService(orgId: string, memberId: string) {
+  const [member] = await db.select({ id: members.id }).from(members)
+    .where(and(eq(members.id, memberId), eq(members.organizationId, orgId), isNull(members.deletedAt)))
+    .limit(1);
+  if (!member) throw AppError.notFound(ErrorCode.MEMBER_NOT_FOUND, 'Member not found');
+
   return db
     .select()
     .from(memberMemberships)
@@ -89,7 +94,12 @@ export async function getMemberMembershipsService(memberId: string) {
     .orderBy(desc(memberMemberships.createdAt));
 }
 
-export async function getMembershipEventsService(memberId: string) {
+export async function getMembershipEventsService(orgId: string, memberId: string) {
+  const [member] = await db.select({ id: members.id }).from(members)
+    .where(and(eq(members.id, memberId), eq(members.organizationId, orgId), isNull(members.deletedAt)))
+    .limit(1);
+  if (!member) throw AppError.notFound(ErrorCode.MEMBER_NOT_FOUND, 'Member not found');
+
   return db
     .select()
     .from(membershipEvents)

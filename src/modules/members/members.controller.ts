@@ -40,7 +40,7 @@ export const membersController = {
   },
 
   async getMeasurements(request: FastifyRequest<{ Params: { memberId: string } }>, reply: FastifyReply) {
-    const measurements = await getMemberMeasurementsService(request.params.memberId);
+    const measurements = await getMemberMeasurementsService(request.user.orgId, request.params.memberId);
     return reply.send({ measurements });
   },
 
@@ -57,7 +57,7 @@ export const membersController = {
   },
 
   async updateHealthProfile(request: FastifyRequest<{ Params: { memberId: string } }>, reply: FastifyReply) {
-    const health = await updateMemberHealthProfileService(request.user.orgId, request.params.memberId, request.body as any);
+    const health = await updateMemberHealthProfileService(request.user.orgId, request.params.memberId, request.body as any, request.user.userId);
     return reply.send({ health });
   },
 

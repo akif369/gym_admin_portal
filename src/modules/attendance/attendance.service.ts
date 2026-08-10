@@ -191,19 +191,24 @@ export async function listAttendanceService(orgId: string, query: Record<string,
 
 // ── Member Attendance History ─────────────────────────────────────────────────
 
-export async function getMemberAttendanceService(memberId: string, query: Record<string, unknown>) {
+export async function getMemberAttendanceService(orgId: string, memberId: string, query: Record<string, unknown>) {
+  const [member] = await db.select({ id: members.id }).from(members)
+    .where(and(eq(members.id, memberId), eq(members.organizationId, orgId), isNull(members.deletedAt)))
+    .limit(1);
+  if (!member) throw AppError.notFound(ErrorCode.MEMBER_NOT_FOUND, 'Member not found');
+
   const { page, pageSize } = parsePagination(query);
   const { limit, offset } = paginationToLimitOffset({ page, pageSize });
 
   const [{ total }] = await db
     .select({ total: count() })
     .from(attendanceLogs)
-    .where(eq(attendanceLogs.memberId, memberId));
+    .where(and(eq(attendanceLogs.memberId, memberId), eq(attendanceLogs.organizationId, orgId)));
 
   const items = await db
     .select()
     .from(attendanceLogs)
-    .where(eq(attendanceLogs.memberId, memberId))
+    .where(and(eq(attendanceLogs.memberId, memberId), eq(attendanceLogs.organizationId, orgId)))
     .orderBy(desc(attendanceLogs.checkInAt))
     .limit(limit)
     .offset(offset);
