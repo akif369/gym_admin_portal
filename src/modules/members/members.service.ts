@@ -62,6 +62,16 @@ export async function listMembersService(orgId: string, query: Record<string, un
     conditions.push(eq(members.status, status as any));
   }
 
+  if (membershipStatus) {
+    conditions.push(sql`(
+      SELECT ${sql.identifier('member_memberships')}.${sql.identifier('status')}
+      FROM ${sql.identifier('member_memberships')}
+      WHERE ${sql.identifier('member_memberships')}.${sql.identifier('member_id')} = ${sql.identifier('members')}.${sql.identifier('id')}
+      ORDER BY ${sql.identifier('member_memberships')}.${sql.identifier('created_at')} DESC
+      LIMIT 1
+    ) = ${membershipStatus}`);
+  }
+
   const whereClause = and(...conditions);
 
   const [{ total }] = await db
