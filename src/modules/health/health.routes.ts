@@ -2,7 +2,31 @@ import type { FastifyInstance } from 'fastify';
 import { checkDatabaseConnection } from '../../db/index';
 
 export async function healthRoutes(fastify: FastifyInstance): Promise<void> {
-  // ── Liveness — Is the process alive? ──────────────────────────────────────
+  fastify.get(
+    '/test',
+    {
+      schema: {
+        tags: ['Health'],
+        summary: 'Test welcome endpoint',
+        description: 'Returns a simple welcome message for quick backend smoke testing.',
+        security: [],
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              message: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+    async (_request, reply) => {
+      return reply.send({
+        message: 'Welcome to GymFlow',
+      });
+    },
+  );
+
   fastify.get(
     '/health/live',
     {
@@ -32,7 +56,6 @@ export async function healthRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // ── Readiness — Are all dependencies ready? ────────────────────────────────
   fastify.get(
     '/health/ready',
     {
@@ -74,7 +97,6 @@ export async function healthRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // ── Version / Info ─────────────────────────────────────────────────────────
   fastify.get(
     '/health/info',
     {
