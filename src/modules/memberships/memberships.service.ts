@@ -2,7 +2,7 @@ import { addDays, parseISO } from 'date-fns';
 import { db } from '../../db/index';
 import { membershipPlans, memberMemberships, membershipEvents } from '../../db/schema/memberships.schema';
 import { members } from '../../db/schema/members.schema';
-import { eq, and, isNull, desc, asc, count } from 'drizzle-orm';
+import { eq, and, isNull, desc, asc, count, sql } from 'drizzle-orm';
 import { AppError, ErrorCode } from '../../common/errors/AppError';
 import { parsePagination, paginationToLimitOffset, buildPaginatedResponse } from '../../common/pagination/paginate';
 import { auditLog } from '../../common/audit/auditLog';
@@ -95,6 +95,42 @@ export async function getMembershipEventsService(memberId: string) {
     .from(membershipEvents)
     .where(eq(membershipEvents.memberId, memberId))
     .orderBy(desc(membershipEvents.createdAt));
+}
+
+// ── List All Membership Events (org-wide) ─────────────────────────────────────
+
+export async function listMembershipEventsService(orgId: string, query: Record<string, unknown>) {
+  const { page, pageSize } = parsePagination(query);
+  const { limit, offset } = paginationToLimitOffset({ page, pageSize });
+
+  // Join membership events with member data for names
+  const [{ total }] = await db
+    .select({ total: count() })
+    .from(membershipEvents)
+    .innerJoin(members, eq(members.id, membershipEvents.memberId))
+    .where(eq(members.organizationId, orgId));
+
+  const items = await db
+    .select({
+      id: membershipEvents.id,
+      memberId: membershipEvents.memberId,
+      membershipId: membershipEvents.membershipId,
+      eventType: membershipEvents.eventType,
+      actorId: membershipEvents.actorId,
+      actorName: membershipEvents.actorName,
+      notes: membershipEvents.notes,
+      createdAt: membershipEvents.createdAt,
+      firstName: members.firstName,
+      lastName: members.lastName,
+    })
+    .from(membershipEvents)
+    .innerJoin(members, eq(members.id, membershipEvents.memberId))
+    .where(eq(members.organizationId, orgId))
+    .orderBy(desc(membershipEvents.createdAt))
+    .limit(limit)
+    .offset(offset);
+
+  return buildPaginatedResponse(items, total ?? 0, { page, pageSize });
 }
 
 // ── Validate idempotency ──────────────────────────────────────────────────────

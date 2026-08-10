@@ -1,7 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import {
   listPlansService, createPlanService, getPlanService, updatePlanService, updatePlanStatusService,
-  getMemberMembershipsService, getMembershipEventsService,
+  getMemberMembershipsService, getMembershipEventsService, listMembershipEventsService,
   createMembershipService, activateMembershipService, renewMembershipService,
   freezeMembershipService, resumeMembershipService, cancelMembershipService, extendMembershipService,
 } from './memberships.service';
@@ -35,6 +35,10 @@ export const membershipsController = {
   async getMembershipEvents(request: FastifyRequest<{ Params: { memberId: string } }>, reply: FastifyReply) {
     const events = await getMembershipEventsService(request.params.memberId);
     return reply.send({ events });
+  },
+  async listEvents(request: FastifyRequest, reply: FastifyReply) {
+    const result = await listMembershipEventsService(request.user.orgId, request.query as any);
+    return reply.send(result);
   },
   async createMembership(request: FastifyRequest<{ Params: { memberId: string } }>, reply: FastifyReply) {
     const idempotencyKey = request.headers['idempotency-key'] as string | undefined;

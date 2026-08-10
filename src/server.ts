@@ -1,7 +1,7 @@
 import { buildApp } from './app';
 import { config } from './config/env';
 import { logger } from './common/logger/index';
-import { closeDatabaseConnection } from './db/index';
+import { checkDatabaseConnection, closeDatabaseConnection } from './db/index';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -19,6 +19,13 @@ async function start() {
 
   try {
     fastify = await buildApp();
+
+    const isDatabaseConnected = await checkDatabaseConnection();
+    if (isDatabaseConnected) {
+      logger.info('Database connection verified');
+    } else {
+      logger.warn('Database connection check failed');
+    }
 
     await fastify.listen({
       port: config.port,

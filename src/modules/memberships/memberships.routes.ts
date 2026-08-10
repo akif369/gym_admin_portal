@@ -14,6 +14,9 @@ export async function membershipsRoutes(fastify: FastifyInstance): Promise<void>
   fastify.patch('/membership-plans/:planId', { preHandler: authManage, schema: { tags: ['Memberships'], summary: 'Update membership plan' } }, membershipsController.updatePlan);
   fastify.patch('/membership-plans/:planId/status', { preHandler: authManage, schema: { tags: ['Memberships'], summary: 'Enable/disable plan' } }, membershipsController.updatePlanStatus);
 
+  // ── Org-wide Events ────────────────────────────────────────────────────────
+  fastify.get('/membership-events', { preHandler: auth, schema: { tags: ['Memberships'], summary: 'List all membership events (org-wide, paginated)' } }, membershipsController.listEvents);
+
   // ── Member Membership Lifecycle ────────────────────────────────────────────
   fastify.get('/members/:memberId/memberships', { preHandler: auth, schema: { tags: ['Memberships'], summary: 'Member membership history' } }, membershipsController.getMemberMemberships);
   fastify.get('/members/:memberId/membership-events', { preHandler: auth, schema: { tags: ['Memberships'], summary: 'Immutable membership event log' } }, membershipsController.getMembershipEvents);
