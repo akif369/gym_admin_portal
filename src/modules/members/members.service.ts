@@ -69,6 +69,9 @@ export async function listMembersService(orgId: string, query: Record<string, un
     .from(members)
     .where(whereClause);
 
+  const qualifiedColumn = (table: string, column: string) =>
+    sql`${sql.identifier(table)}.${sql.identifier(column)}`;
+
   // Fetch members with latest membership info via subquery
   const items = await db
     .select({
@@ -87,38 +90,55 @@ export async function listMembersService(orgId: string, query: Record<string, un
       branchId: members.branchId,
       createdAt: members.createdAt,
       membershipPlan: sql<string | null>`(
-        SELECT ${memberMemberships.planName}
-        FROM ${memberMemberships}
-        WHERE ${memberMemberships.memberId} = ${members.id}
-        ORDER BY ${memberMemberships.createdAt} DESC
+        SELECT ${qualifiedColumn('member_memberships', 'plan_name')}
+        FROM ${sql.identifier('member_memberships')}
+        WHERE ${qualifiedColumn('member_memberships', 'member_id')} = ${qualifiedColumn('members', 'id')}
+        ORDER BY ${qualifiedColumn('member_memberships', 'created_at')} DESC
         LIMIT 1
       )`,
       membershipStart: sql<string | null>`(
-        SELECT ${memberMemberships.startDate}
-        FROM ${memberMemberships}
-        WHERE ${memberMemberships.memberId} = ${members.id}
-        ORDER BY ${memberMemberships.createdAt} DESC
+        SELECT ${qualifiedColumn('member_memberships', 'start_date')}
+        FROM ${sql.identifier('member_memberships')}
+        WHERE ${qualifiedColumn('member_memberships', 'member_id')} = ${qualifiedColumn('members', 'id')}
+        ORDER BY ${qualifiedColumn('member_memberships', 'created_at')} DESC
         LIMIT 1
       )`,
       membershipExpiry: sql<string | null>`(
-        SELECT ${memberMemberships.endDate}
-        FROM ${memberMemberships}
-        WHERE ${memberMemberships.memberId} = ${members.id}
-        ORDER BY ${memberMemberships.createdAt} DESC
+        SELECT ${qualifiedColumn('member_memberships', 'end_date')}
+        FROM ${sql.identifier('member_memberships')}
+        WHERE ${qualifiedColumn('member_memberships', 'member_id')} = ${qualifiedColumn('members', 'id')}
+        ORDER BY ${qualifiedColumn('member_memberships', 'created_at')} DESC
         LIMIT 1
       )`,
       membershipStatus: sql<string | null>`(
-        SELECT ${memberMemberships.status}
-        FROM ${memberMemberships}
-        WHERE ${memberMemberships.memberId} = ${members.id}
-        ORDER BY ${memberMemberships.createdAt} DESC
+        SELECT ${qualifiedColumn('member_memberships', 'status')}
+        FROM ${sql.identifier('member_memberships')}
+        WHERE ${qualifiedColumn('member_memberships', 'member_id')} = ${qualifiedColumn('members', 'id')}
+        ORDER BY ${qualifiedColumn('member_memberships', 'created_at')} DESC
         LIMIT 1
       )`,
       lastVisit: sql<Date | null>`(
-        SELECT ${attendanceLogs.checkInAt}
-        FROM ${attendanceLogs}
-        WHERE ${attendanceLogs.memberId} = ${members.id}
-        ORDER BY ${attendanceLogs.checkInAt} DESC
+        SELECT ${qualifiedColumn('attendance_logs', 'check_in_at')}
+        FROM ${sql.identifier('attendance_logs')}
+        WHERE ${qualifiedColumn('attendance_logs', 'member_id')} = ${qualifiedColumn('members', 'id')}
+        ORDER BY ${qualifiedColumn('attendance_logs', 'check_in_at')} DESC
+        LIMIT 1
+      )`,
+      trainerName: sql<string | null>`(
+        SELECT ${qualifiedColumn('trainers', 'name')}
+        FROM ${sql.identifier('trainer_assignments')}
+        INNER JOIN ${sql.identifier('trainers')}
+          ON ${qualifiedColumn('trainers', 'id')} = ${qualifiedColumn('trainer_assignments', 'trainer_id')}
+        WHERE ${qualifiedColumn('trainer_assignments', 'member_id')} = ${qualifiedColumn('members', 'id')}
+          AND ${qualifiedColumn('trainer_assignments', 'unassigned_at')} IS NULL
+        ORDER BY ${qualifiedColumn('trainer_assignments', 'assigned_at')} DESC
+        LIMIT 1
+      )`,
+      paymentStatus: sql<string | null>`(
+        SELECT ${qualifiedColumn('payment_transactions', 'status')}
+        FROM ${sql.identifier('payment_transactions')}
+        WHERE ${qualifiedColumn('payment_transactions', 'member_id')} = ${qualifiedColumn('members', 'id')}
+        ORDER BY ${qualifiedColumn('payment_transactions', 'created_at')} DESC
         LIMIT 1
       )`,
     })
