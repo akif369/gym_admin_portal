@@ -86,6 +86,41 @@ export async function listMembersService(orgId: string, query: Record<string, un
       experienceLevel: members.experienceLevel,
       branchId: members.branchId,
       createdAt: members.createdAt,
+      membershipPlan: sql<string | null>`(
+        SELECT ${memberMemberships.planName}
+        FROM ${memberMemberships}
+        WHERE ${memberMemberships.memberId} = ${members.id}
+        ORDER BY ${memberMemberships.createdAt} DESC
+        LIMIT 1
+      )`,
+      membershipStart: sql<string | null>`(
+        SELECT ${memberMemberships.startDate}
+        FROM ${memberMemberships}
+        WHERE ${memberMemberships.memberId} = ${members.id}
+        ORDER BY ${memberMemberships.createdAt} DESC
+        LIMIT 1
+      )`,
+      membershipExpiry: sql<string | null>`(
+        SELECT ${memberMemberships.endDate}
+        FROM ${memberMemberships}
+        WHERE ${memberMemberships.memberId} = ${members.id}
+        ORDER BY ${memberMemberships.createdAt} DESC
+        LIMIT 1
+      )`,
+      membershipStatus: sql<string | null>`(
+        SELECT ${memberMemberships.status}
+        FROM ${memberMemberships}
+        WHERE ${memberMemberships.memberId} = ${members.id}
+        ORDER BY ${memberMemberships.createdAt} DESC
+        LIMIT 1
+      )`,
+      lastVisit: sql<Date | null>`(
+        SELECT ${attendanceLogs.checkInAt}
+        FROM ${attendanceLogs}
+        WHERE ${attendanceLogs.memberId} = ${members.id}
+        ORDER BY ${attendanceLogs.checkInAt} DESC
+        LIMIT 1
+      )`,
     })
     .from(members)
     .where(whereClause)
