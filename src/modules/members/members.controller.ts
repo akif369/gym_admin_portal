@@ -6,11 +6,12 @@ import {
   getMemberHealthProfileService, updateMemberHealthProfileService,
   uploadMemberPhotoService,
 } from './members.service';
+import { isStrictPaymentPolicyEnabled } from '../org/org.service';
 
 export const membersController = {
   async list(request: FastifyRequest, reply: FastifyReply) {
     const result = await listMembersService(request.user.orgId, request.query as any);
-    return reply.send(result);
+    return reply.send({ ...result, strictPaymentPolicy: await isStrictPaymentPolicyEnabled(request.user.orgId) });
   },
 
   async create(request: FastifyRequest, reply: FastifyReply) {

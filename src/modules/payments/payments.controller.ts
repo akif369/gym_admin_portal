@@ -2,6 +2,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import {
   listPaymentsService, recordPaymentService, getPaymentService, refundPaymentService,
   listInvoicesService, generateInvoiceService, getInvoiceService, getMemberPaymentsService,
+  sendInvoiceWhatsAppService,
 } from './payments.service';
 
 export const paymentsController = {
@@ -44,6 +45,14 @@ export const paymentsController = {
     </body></html>`;
     reply.header('Content-Type', 'text/html');
     return reply.send(html);
+  },
+  async sendInvoiceWhatsApp(request: FastifyRequest<{ Params: { invoiceId: string } }>, reply: FastifyReply) {
+    const delivery = await sendInvoiceWhatsAppService(
+      request.user.orgId,
+      request.params.invoiceId,
+      request.user.userId,
+    );
+    return reply.status(202).send({ delivery });
   },
   async memberPayments(request: FastifyRequest<{ Params: { memberId: string } }>, reply: FastifyReply) {
     const result = await getMemberPaymentsService(request.user.orgId, request.params.memberId, request.query as any);

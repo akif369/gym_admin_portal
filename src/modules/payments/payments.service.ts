@@ -280,6 +280,63 @@ export async function getInvoiceService(orgId: string, invoiceId: string) {
   return { ...invoice, lineItems };
 }
 
+function maskPhone(phone: string) {
+  const normalized = phone.replace(/\s+/g, '');
+  if (normalized.length <= 4) return '****';
+  return `${'*'.repeat(Math.max(0, normalized.length - 4))}${normalized.slice(-4)}`;
+}
+
+export async function sendInvoiceWhatsAppService(orgId: string, invoiceId: string, actorId: string) {
+  const invoice = await getInvoiceService(orgId, invoiceId);
+  if (!invoice.memberId) {
+    throw AppError.badRequest(ErrorCode.BAD_REQUEST, 'This invoice is not linked to a member with a WhatsApp contact');
+  }
+
+  const [member] = await db
+    .select({ id: members.id, firstName: members.firstName, lastName: members.lastName, phone: members.phone })
+    .from(members)
+    .where(and(
+      eq(members.id, invoice.memberId),
+      eq(members.organizationId, orgId),
+      isNull(members.deletedAt),
+    ))
+    .limit(1);
+
+  if (!member?.phone) {
+    throw AppError.badRequest(ErrorCode.BAD_REQUEST, 'Add a phone number to this member before sending the invoice');
+  }
+
+  const memberName = `${member.firstName} ${member.lastName}`.trim();
+  const message = `Hello ${memberName}, your invoice ${invoice.invoiceNumber} from GymFlow totals ${invoice.totalAmount}.`;
+  const delivery = {
+    status: 'QUEUED' as const,
+    provider: 'NOT_CONFIGURED' as const,
+    invoiceId: invoice.id,
+    invoiceNumber: invoice.invoiceNumber,
+    recipient: maskPhone(member.phone),
+    message,
+  };
+
+  await auditLog({
+    organizationId: orgId,
+    actorId,
+    action: AuditAction.INVOICE_WHATSAPP_QUEUED,
+    entityType: 'invoice',
+    entityId: invoice.id,
+    description: `WhatsApp invoice message queued for ${invoice.invoiceNumber}`,
+    afterState: delivery,
+  });
+
+  log.info({
+    invoiceId: invoice.id,
+    invoiceNumber: invoice.invoiceNumber,
+    recipient: delivery.recipient,
+    provider: delivery.provider,
+  }, 'Invoice WhatsApp message queued; provider integration is pending');
+
+  return delivery;
+}
+
 export async function getMemberPaymentsService(orgId: string, memberId: string, query: Record<string, unknown>) {
   const [member] = await db
     .select({ id: members.id })

@@ -2,12 +2,14 @@ import { db } from '../../db/index';
 import { attendanceLogs } from '../../db/schema/attendance.schema';
 import { members } from '../../db/schema/members.schema';
 import { memberMemberships } from '../../db/schema/memberships.schema';
+import { paymentTransactions } from '../../db/schema/payments.schema';
 import { eq, and, isNull, desc, count, sql, gte, lte, lt, gt, between } from 'drizzle-orm';
 import { AppError, ErrorCode } from '../../common/errors/AppError';
 import { parsePagination, paginationToLimitOffset, buildPaginatedResponse } from '../../common/pagination/paginate';
 import { auditLog } from '../../common/audit/auditLog';
 import { AuditAction } from '../../db/schema/audit.schema';
 import { createLogger } from '../../common/logger/index';
+import { isStrictPaymentPolicyEnabled } from '../org/org.service';
 
 const log = createLogger('attendance-service');
 
@@ -55,15 +57,47 @@ export async function checkInService(
     throw AppError.conflict(ErrorCode.ALREADY_CHECKED_IN, 'Member is already checked in');
   }
 
-  // Validate membership is active (warn but still allow for now)
+  // Validate membership is active.
   const [activeMembership] = await db
-    .select({ status: memberMemberships.status, endDate: memberMemberships.endDate })
+    .select({ status: memberMemberships.status, endDate: memberMemberships.endDate, createdAt: memberMemberships.createdAt })
     .from(memberMemberships)
     .where(and(eq(memberMemberships.memberId, member.id), eq(memberMemberships.status, 'ACTIVE')))
     .limit(1);
 
+  const strictPaymentPolicy = await isStrictPaymentPolicyEnabled(orgId);
+  let latestPaymentStatus: string | null = null;
+  let latestPayment: { status: string; createdAt: Date } | undefined;
+  if (strictPaymentPolicy) {
+    [latestPayment] = await db
+      .select({ status: paymentTransactions.status, createdAt: paymentTransactions.createdAt })
+      .from(paymentTransactions)
+      .where(and(
+        eq(paymentTransactions.memberId, member.id),
+        eq(paymentTransactions.organizationId, orgId),
+      ))
+      .orderBy(desc(paymentTransactions.createdAt))
+      .limit(1);
+    latestPaymentStatus = latestPayment?.status ?? null;
+  }
+
   if (!activeMembership) {
     log.warn({ memberId: member.id }, 'Check-in attempted without active membership');
+  }
+
+  const paymentCoversMembership = Boolean(
+    activeMembership
+    && latestPaymentStatus === 'PAID'
+    && latestPayment
+    && latestPayment.createdAt >= activeMembership.createdAt,
+  );
+
+  if (strictPaymentPolicy && (!activeMembership || !paymentCoversMembership)) {
+    throw AppError.badRequest(
+      ErrorCode.MEMBERSHIP_EXPIRED_OR_INACTIVE,
+      !activeMembership
+        ? 'Member does not have an active membership'
+        : 'Payment is required before this member can check in',
+    );
   }
 
   const [log_] = await db

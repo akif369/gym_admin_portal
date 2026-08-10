@@ -16,6 +16,7 @@ export async function paymentsRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post('/invoices/generate', { preHandler: authCreate, schema: { tags: ['Payments'], summary: 'Generate invoice' } }, paymentsController.generateInvoice);
   fastify.get('/invoices/:invoiceId', { preHandler: authView, schema: { tags: ['Payments'], summary: 'Invoice detail' } }, paymentsController.getInvoice);
   fastify.get('/invoices/:invoiceId/pdf', { preHandler: authView, schema: { tags: ['Payments'], summary: 'Invoice PDF' } }, paymentsController.getInvoicePdf);
+  fastify.post('/invoices/:invoiceId/whatsapp', { preHandler: authCreate, schema: { tags: ['Payments'], summary: 'Queue invoice WhatsApp message' } }, paymentsController.sendInvoiceWhatsApp);
   fastify.get('/members/:memberId/payments', { preHandler: authView, schema: { tags: ['Payments'], summary: 'Member payment history' } }, paymentsController.memberPayments);
   fastify.post('/payments/webhooks/provider', { schema: { tags: ['Payments'], summary: 'Payment gateway webhook', security: [] } }, paymentsController.webhook);
 }
