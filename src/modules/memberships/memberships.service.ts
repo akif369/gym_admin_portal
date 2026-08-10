@@ -245,8 +245,21 @@ export async function renewMembershipService(
   actorId: string,
   actorName?: string,
 ) {
-  if (data.idempotencyKey && await checkIdempotency(data.idempotencyKey)) {
-    throw AppError.conflict(ErrorCode.IDEMPOTENCY_CONFLICT, 'Duplicate renewal request');
+  const [member] = await db.select({ id: members.id }).from(members)
+    .where(and(eq(members.id, memberId), eq(members.organizationId, orgId), isNull(members.deletedAt)))
+    .limit(1);
+  if (!member) throw AppError.notFound(ErrorCode.MEMBER_NOT_FOUND, 'Member not found');
+
+  if (data.idempotencyKey) {
+    const [existing] = await db.select({ membership: memberMemberships })
+      .from(memberMemberships)
+      .innerJoin(members, eq(members.id, memberMemberships.memberId))
+      .where(and(
+        eq(memberMemberships.idempotencyKey, data.idempotencyKey),
+        eq(members.organizationId, orgId),
+      ))
+      .limit(1);
+    if (existing) return existing.membership;
   }
 
   // Get current active membership

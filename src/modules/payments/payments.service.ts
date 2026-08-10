@@ -63,11 +63,12 @@ export async function recordPaymentService(
     const [existing] = await db
       .select()
       .from(paymentTransactions)
-      .where(eq(paymentTransactions.idempotencyKey, data.idempotencyKey))
+      .where(and(
+        eq(paymentTransactions.idempotencyKey, data.idempotencyKey),
+        eq(paymentTransactions.organizationId, orgId),
+      ))
       .limit(1);
-    if (existing) {
-      throw AppError.conflict(ErrorCode.IDEMPOTENCY_CONFLICT, 'Duplicate payment with same idempotency key');
-    }
+    if (existing) return existing;
   }
 
   let memberName: string | undefined;
