@@ -3,7 +3,7 @@ import {
   paymentTransactions, invoices, invoiceLineItems, refunds, reportExports,
 } from '../../db/schema/payments.schema';
 import { members } from '../../db/schema/members.schema';
-import { eq, and, isNull, desc, count, sum, sql, gte, lte } from 'drizzle-orm';
+import { eq, and, isNull, desc, count, sum, sql, gte, lte, or, ilike } from 'drizzle-orm';
 import { AppError, ErrorCode } from '../../common/errors/AppError';
 import { parsePagination, paginationToLimitOffset, buildPaginatedResponse } from '../../common/pagination/paginate';
 import { auditLog } from '../../common/audit/auditLog';
@@ -67,6 +67,15 @@ export async function listPaymentsService(orgId: string, query: Record<string, u
   if (query['status']) conditions.push(eq(paymentTransactions.status, query['status'] as any));
   if (query['dateFrom']) conditions.push(gte(paymentTransactions.createdAt, new Date(query['dateFrom'] as string)));
   if (query['dateTo']) conditions.push(lte(paymentTransactions.createdAt, new Date(query['dateTo'] as string)));
+  if (typeof query['search'] === 'string' && query['search'].trim()) {
+    const term = `%${query['search'].trim().slice(0, 100).replace(/[\\%_]/g, '\\$&')}%`;
+    conditions.push(or(
+      ilike(paymentTransactions.referenceId!, term),
+      ilike(paymentTransactions.memberName!, term),
+      ilike(paymentTransactions.description!, term),
+      sql`CAST(${paymentTransactions.id} AS TEXT) ILIKE ${term}`,
+    ));
+  }
 
   const whereClause = and(...conditions);
 
