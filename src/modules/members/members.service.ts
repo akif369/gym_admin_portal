@@ -17,8 +17,32 @@ import { createLogger } from '../../common/logger/index';
 import * as fs from 'fs';
 import * as path from 'path';
 import { config } from '../../config/env';
+import { sendTextMessage } from '../notifications/notifications.service';
 
 const log = createLogger('members-service');
+
+const GYM_QUOTES = [
+  "Discipline beats motivation.",
+  "No excuses. Just results.",
+  "Train hard. Stay humble.",
+  "One more rep. One more step.",
+  "Earn your strength.",
+  "Your only competition is yesterday's you.",
+  "Small progress is still progress.",
+  "Be stronger than your excuses.",
+  "Show up. Put in the work. Repeat.",
+  "Pain is temporary. Pride lasts forever.",
+  "Dream big. Train bigger.",
+  "Don't wish for it. Work for it.",
+  "Every rep makes you stronger.",
+  "Build the body. Build the mindset.",
+  "Stay consistent. Results will follow.",
+  "The struggle today builds the strength of tomorrow.",
+  "You don't need motivation. You need discipline.",
+  "Get comfortable being uncomfortable.",
+  "Start where you are. Become who you want to be.",
+  "Your future self will thank you."
+];
 
 function normalizeIndianMobile(phone: string): string {
   const digits = phone.replace(/\D/g, '');
@@ -245,6 +269,23 @@ export async function createMemberService(
   });
 
   log.info({ memberId: member.id, memberNumber }, 'Member created');
+
+  try {
+    const quote = GYM_QUOTES[Math.floor(Math.random() * GYM_QUOTES.length)];
+    const text = `Welcome to the gym, ${member.firstName} ${member.lastName}! Thank you for joining us.\n\n> ${quote}`;
+    sendTextMessage({
+      organizationId: orgId,
+      memberId: member.id,
+      eventType: 'WELCOME',
+      phone: member.phone,
+      text,
+      idempotencyKey: `welcome_${member.id}`,
+      actorId,
+    }).catch(err => log.error({ err, memberId: member.id }, 'Failed to send welcome message'));
+  } catch (err) {
+    log.error({ err, memberId: member.id }, 'Failed to initiate welcome message');
+  }
+
   return member;
 }
 

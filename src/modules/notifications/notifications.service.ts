@@ -12,7 +12,7 @@ type SendTextInput = {
   organizationId: string;
   memberId?: string;
   invoiceId?: string;
-  eventType: 'INVOICE' | 'MEMBERSHIP_RENEWED' | 'MEMBERSHIP_EXPIRED' | 'MANUAL';
+  eventType: 'INVOICE' | 'MEMBERSHIP_RENEWED' | 'MEMBERSHIP_EXPIRED' | 'MANUAL' | 'WELCOME';
   phone: string;
   text: string;
   idempotencyKey: string;
