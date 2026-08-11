@@ -25,14 +25,24 @@ function maskPhone(phone: string) {
 }
 
 function normalizePhone(phone: string): string {
-  let normalized = phone.trim().replace(/[^\d+]/g, '');
-  if (normalized.startsWith('+')) normalized = normalized.slice(1);
-  if (normalized.startsWith('00')) normalized = normalized.slice(2);
-  if (normalized.length === 10) normalized = `${config.evolutionGo.defaultCountryCode}${normalized}`;
+  const trimmed = phone.trim();
+  const hasInternationalPrefix = trimmed.startsWith('+') || trimmed.startsWith('00');
+  let normalized = trimmed.replace(/\D/g, '');
+  if (trimmed.startsWith('00')) normalized = normalized.slice(2);
+
+  // A local number has no country prefix. Preserve every explicitly supplied
+  // international number, including numbers entered as +<country code>.
+  if (!hasInternationalPrefix && normalized.length === 10) {
+    normalized = `${config.evolutionGo.defaultCountryCode}${normalized}`;
+  }
   if (!/^\d{8,15}$/.test(normalized)) {
     throw new Error('The member phone number must contain a valid international number');
   }
   return normalized;
+}
+
+function sendTextEndpoint(baseUrl: string): string {
+  return new URL(`${baseUrl}/send/text`).toString();
 }
 
 function providerMessageId(payload: string): string | undefined {
@@ -59,7 +69,7 @@ export async function sendTextMessage(input: SendTextInput) {
 
   if (existing) return { ...existing, recipient: maskPhone(existing.recipient), alreadyProcessed: true };
 
-  const configured = config.evolutionGo.enabled && Boolean(config.evolutionGo.endpoint);
+  const configured = config.evolutionGo.enabled;
   const [delivery] = await db.insert(messageDeliveries).values({
     organizationId: input.organizationId,
     memberId: input.memberId,
@@ -78,10 +88,13 @@ export async function sendTextMessage(input: SendTextInput) {
   }
 
   try {
-    const headers: Record<string, string> = { 'content-type': 'application/json' };
-    if (config.evolutionGo.apiKey) headers['apikey'] = config.evolutionGo.apiKey;
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      // Evolution Go expects the instance token in the lowercase `apikey` header.
+      apikey: config.evolutionGo.instanceToken,
+    };
 
-    const response = await fetch(config.evolutionGo.endpoint, {
+    const response = await fetch(sendTextEndpoint(config.evolutionGo.baseUrl), {
       method: 'POST',
       headers,
       body: JSON.stringify({ number: recipient, text: input.text }),
@@ -89,7 +102,10 @@ export async function sendTextMessage(input: SendTextInput) {
     });
     const payload = await response.text();
 
-    if (!response.ok) throw new Error(`Evolution Go returned HTTP ${response.status}`);
+    if (!response.ok) {
+      const reason = payload.replace(/\s+/g, ' ').slice(0, 500);
+      throw new Error(`Evolution Go returned HTTP ${response.status}${reason ? `: ${reason}` : ''}`);
+    }
 
     const [sent] = await db.update(messageDeliveries)
       .set({

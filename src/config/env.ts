@@ -30,6 +30,40 @@ function optionalEnvBoolean(key: string, defaultValue: boolean): boolean {
   throw new Error(`Environment variable ${key} must be true or false, got: ${raw}`);
 }
 
+function evolutionGoConfig() {
+  const enabled = optionalEnvBoolean('EVOLUTION_GO_ENABLED', false);
+  const baseUrl = optionalEnv('EVOLUTION_GO_URL', '').trim().replace(/\/+$/, '');
+  const instanceToken = optionalEnv('EVOLUTION_GO_INSTANCE_TOKEN', '').trim();
+  const defaultCountryCode = optionalEnv('EVOLUTION_GO_DEFAULT_COUNTRY_CODE', '91').trim();
+  const timeoutMs = optionalEnvNumber('EVOLUTION_GO_TIMEOUT_MS', 10_000);
+
+  if (!/^\d{1,3}$/.test(defaultCountryCode)) {
+    throw new Error('EVOLUTION_GO_DEFAULT_COUNTRY_CODE must contain 1 to 3 digits');
+  }
+  if (timeoutMs < 1_000 || timeoutMs > 60_000) {
+    throw new Error('EVOLUTION_GO_TIMEOUT_MS must be between 1000 and 60000');
+  }
+  if (enabled) {
+    if (!baseUrl) throw new Error('EVOLUTION_GO_URL is required when EVOLUTION_GO_ENABLED=true');
+    if (!instanceToken) throw new Error('EVOLUTION_GO_INSTANCE_TOKEN is required when EVOLUTION_GO_ENABLED=true');
+
+    let url: URL;
+    try {
+      url = new URL(baseUrl);
+    } catch {
+      throw new Error('EVOLUTION_GO_URL must be a valid absolute HTTP(S) URL');
+    }
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      throw new Error('EVOLUTION_GO_URL must use http or https');
+    }
+    if (/\/send\/text$/i.test(url.pathname)) {
+      throw new Error('EVOLUTION_GO_URL must be the Evolution Go base URL; /send/text is added by the backend');
+    }
+  }
+
+  return { enabled, baseUrl, instanceToken, defaultCountryCode, timeoutMs };
+}
+
 export const config = {
   // ── Server ──────────────────────────────────────────────────
   nodeEnv: optionalEnv('NODE_ENV', 'development') as 'development' | 'production' | 'test',
@@ -76,13 +110,7 @@ export const config = {
   // ── Logging ──────────────────────────────────────────────────
   logLevel: optionalEnv('LOG_LEVEL', 'info') as 'debug' | 'info' | 'warn' | 'error',
 
-  evolutionGo: {
-    enabled: optionalEnvBoolean('EVOLUTION_GO_ENABLED', false),
-    endpoint: optionalEnv('EVOLUTION_GO_URL', ''),
-    apiKey: process.env['EVOLUTION_GO_API_KEY'],
-    defaultCountryCode: optionalEnv('EVOLUTION_GO_DEFAULT_COUNTRY_CODE', '91'),
-    timeoutMs: optionalEnvNumber('EVOLUTION_GO_TIMEOUT_MS', 10_000),
-  },
+  evolutionGo: evolutionGoConfig(),
   membershipExpirySweepIntervalMs: optionalEnvNumber('MEMBERSHIP_EXPIRY_SWEEP_INTERVAL_MS', 60 * 60 * 1000),
 
   // ── Derived ──────────────────────────────────────────────────
