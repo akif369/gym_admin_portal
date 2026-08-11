@@ -16,6 +16,20 @@ import { organizations } from '../../db/schema/org.schema';
 
 const log = createLogger('memberships-service');
 
+function formatDateForMessage(date: string): string {
+  const parsed = new Date(`${date}T00:00:00`);
+  return Number.isNaN(parsed.getTime())
+    ? date
+    : new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(parsed);
+}
+
+function formatAmountForMessage(amount: string): string {
+  const numeric = Number(amount);
+  return Number.isFinite(numeric)
+    ? `₹${numeric.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : `₹${amount}`;
+}
+
 function currentDateInTimeZone(timeZone: string) {
   try {
     const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
@@ -60,7 +74,18 @@ async function sendRenewalNotification(
     invoiceId: invoice.id,
     eventType: 'MEMBERSHIP_RENEWED',
     phone: member.phone,
-    text: `Hello ${memberName}, your ${plan.name} membership has been renewed until ${membership.endDate}. Invoice ${invoice.invoiceNumber}: ${invoice.publicViewUrl}`,
+    text: `Hello ${memberName} 👋
+
+Your *${plan.name}* membership has been renewed successfully ✅
+
+📅 Valid until: *${formatDateForMessage(membership.endDate)}*
+💳 Amount: *${formatAmountForMessage(invoice.totalAmount)}*${invoice.taxIncluded ? ' (GST included)' : ''}
+🧾 Invoice: *${invoice.invoiceNumber}*
+
+View or download your invoice:
+${invoice.publicViewUrl}
+
+Thank you for training with us!`,
     idempotencyKey: `membership-renewed:${membership.id}`,
     actorId,
   });
@@ -423,7 +448,11 @@ export async function expireDueMembershipsService() {
         memberId: updated.memberId,
         eventType: 'MEMBERSHIP_EXPIRED',
         phone: candidate.phone,
-        text: `Hello ${memberName}, your ${updated.planName} membership expired on ${updated.endDate}. Please contact us to renew your plan.`,
+        text: `Hello ${memberName} 👋
+
+Your *${updated.planName}* membership expired on *${formatDateForMessage(updated.endDate)}*.
+
+Renew now to continue uninterrupted access to the gym and your training plan. Please contact us and we’ll be happy to help. 💪`,
         idempotencyKey: `membership-expired:${updated.id}`,
       });
       if (delivery.status === 'SENT') notified += 1;
