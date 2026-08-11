@@ -5,6 +5,7 @@ import { checkDatabaseConnection, closeDatabaseConnection } from './db/index';
 import * as fs from 'fs';
 import * as path from 'path';
 import { startMembershipExpiryScheduler } from './modules/memberships/memberships.scheduler';
+import { startAttendanceAutoCheckoutScheduler } from './modules/attendance/attendance.scheduler';
 
 // ── Ensure upload directory exists ────────────────────────────────────────────
 const uploadDir = path.resolve(config.uploadDir);
@@ -18,6 +19,7 @@ if (!fs.existsSync(uploadDir)) {
 async function start() {
   let fastify: Awaited<ReturnType<typeof buildApp>> | undefined;
   let stopMembershipExpiryScheduler: (() => void) | undefined;
+  let stopAttendanceAutoCheckoutScheduler: (() => void) | undefined;
 
   try {
     fastify = await buildApp();
@@ -34,6 +36,7 @@ async function start() {
       host: config.host,
     });
     stopMembershipExpiryScheduler = startMembershipExpiryScheduler();
+    stopAttendanceAutoCheckoutScheduler = startAttendanceAutoCheckoutScheduler();
 
     logger.info(
       {
@@ -55,6 +58,7 @@ async function start() {
     logger.info({ signal }, 'Shutdown signal received, closing server gracefully...');
     try {
       stopMembershipExpiryScheduler?.();
+      stopAttendanceAutoCheckoutScheduler?.();
       if (fastify) await fastify.close();
       await closeDatabaseConnection();
       logger.info('Server shut down cleanly');

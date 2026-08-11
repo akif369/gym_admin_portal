@@ -112,6 +112,7 @@ export const config = {
 
   evolutionGo: evolutionGoConfig(),
   membershipExpirySweepIntervalMs: optionalEnvNumber('MEMBERSHIP_EXPIRY_SWEEP_INTERVAL_MS', 60 * 60 * 1000),
+  attendanceAutoCheckoutSweepIntervalMs: optionalEnvNumber('ATTENDANCE_AUTO_CHECKOUT_SWEEP_INTERVAL_MS', 60 * 1000),
 
   // ── Derived ──────────────────────────────────────────────────
   isProduction: optionalEnv('NODE_ENV', 'development') === 'production',
