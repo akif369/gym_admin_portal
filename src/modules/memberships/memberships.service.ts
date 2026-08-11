@@ -183,6 +183,25 @@ export async function updatePlanStatusService(orgId: string, planId: string, sta
   return updated;
 }
 
+export async function deletePlanService(orgId: string, planId: string) {
+  await getPlanService(orgId, planId);
+
+  const [usage] = await db
+    .select({ total: count() })
+    .from(memberMemberships)
+    .where(eq(memberMemberships.planId, planId));
+
+  if (Number(usage?.total ?? 0) > 0) {
+    throw AppError.badRequest(
+      ErrorCode.BAD_REQUEST,
+      'This plan has membership history and cannot be deleted. Set it to inactive instead.',
+    );
+  }
+
+  await db.delete(membershipPlans)
+    .where(and(eq(membershipPlans.id, planId), eq(membershipPlans.organizationId, orgId)));
+}
+
 // ── Member Memberships ────────────────────────────────────────────────────────
 
 export async function getMemberMembershipsService(orgId: string, memberId: string) {

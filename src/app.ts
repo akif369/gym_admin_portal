@@ -31,6 +31,7 @@ import { reportsRoutes } from './modules/reports/reports.routes';
 import { adminRoutes } from './modules/admin/admin.routes';
 import { notificationsRoutes } from './modules/notifications/notifications.routes';
 import { searchRoutes } from './modules/search/search.routes';
+import { dashboardRoutes } from './modules/dashboard/dashboard.routes';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -83,6 +84,7 @@ export async function buildApp() {
       await api.register(paymentsRoutes, { prefix: '' });
       await api.register(notificationsRoutes, { prefix: '' });
       await api.register(searchRoutes, { prefix: '/search' });
+      await api.register(dashboardRoutes, { prefix: '/dashboard' });
       await api.register(trainersRoutes, { prefix: '/trainers' });
       await api.register(ptRoutes, { prefix: '/pt' });
       await api.register(leadsRoutes, { prefix: '/leads' });

@@ -13,6 +13,7 @@ export async function membershipsRoutes(fastify: FastifyInstance): Promise<void>
   fastify.get('/membership-plans/:planId', { preHandler: auth, schema: { tags: ['Memberships'], summary: 'Get plan detail' } }, membershipsController.getPlan);
   fastify.patch('/membership-plans/:planId', { preHandler: authManage, schema: { tags: ['Memberships'], summary: 'Update membership plan' } }, membershipsController.updatePlan);
   fastify.patch('/membership-plans/:planId/status', { preHandler: authManage, schema: { tags: ['Memberships'], summary: 'Enable/disable plan' } }, membershipsController.updatePlanStatus);
+  fastify.delete('/membership-plans/:planId', { preHandler: authManage, schema: { tags: ['Memberships'], summary: 'Delete an unused membership plan' } }, membershipsController.deletePlan);
 
   // ── Org-wide Events ────────────────────────────────────────────────────────
   fastify.get('/membership-events', { preHandler: auth, schema: { tags: ['Memberships'], summary: 'List all membership events (org-wide, paginated)' } }, membershipsController.listEvents);

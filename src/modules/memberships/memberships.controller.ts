@@ -1,6 +1,6 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import {
-  listPlansService, createPlanService, getPlanService, updatePlanService, updatePlanStatusService,
+  listPlansService, createPlanService, getPlanService, updatePlanService, updatePlanStatusService, deletePlanService,
   getMemberMembershipsService, getMembershipEventsService, listMembershipEventsService,
   createMembershipService, activateMembershipService, renewMembershipService,
   freezeMembershipService, resumeMembershipService, cancelMembershipService, extendMembershipService,
@@ -27,6 +27,10 @@ export const membershipsController = {
     const { status } = request.body as { status: 'ACTIVE' | 'INACTIVE' };
     const plan = await updatePlanStatusService(request.user.orgId, request.params.planId, status);
     return reply.send({ plan });
+  },
+  async deletePlan(request: FastifyRequest<{ Params: { planId: string } }>, reply: FastifyReply) {
+    await deletePlanService(request.user.orgId, request.params.planId);
+    return reply.status(204).send();
   },
   async getMemberMemberships(request: FastifyRequest<{ Params: { memberId: string } }>, reply: FastifyReply) {
     const memberships = await getMemberMembershipsService(request.user.orgId, request.params.memberId);

@@ -1,0 +1,124 @@
+import { and, count, desc, eq, gte, inArray, isNull, lte, sum } from 'drizzle-orm';
+import { db } from '../../db/index';
+import { attendanceLogs } from '../../db/schema/attendance.schema';
+import { leads } from '../../db/schema/leads.schema';
+import { members } from '../../db/schema/members.schema';
+import { memberMemberships } from '../../db/schema/memberships.schema';
+import { paymentTransactions } from '../../db/schema/payments.schema';
+import { ptSessions } from '../../db/schema/pt.schema';
+import { trainers } from '../../db/schema/trainers.schema';
+
+const asNumber = (value: string | number | null | undefined) => Number(value ?? 0);
+
+function dayStart(date = new Date()) {
+  const result = new Date(date);
+  result.setHours(0, 0, 0, 0);
+  return result;
+}
+
+function monthStart(date = new Date()) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+export async function getDashboardService(orgId: string) {
+  const now = new Date();
+  const today = dayStart(now);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const thisMonth = monthStart(now);
+  const sevenDaysFromNow = new Date(today);
+  sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
+  const todayDate = today.toISOString().slice(0, 10);
+  const expiryDate = sevenDaysFromNow.toISOString().slice(0, 10);
+  const attendanceSince = new Date(today);
+  attendanceSince.setDate(attendanceSince.getDate() - 6);
+  const revenueSince = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+
+  const [
+    [{ currentlyInside }],
+    [{ todaysCheckins }],
+    [{ todaysRevenue }],
+    [{ monthRevenue }],
+    [{ pendingAmount }],
+    [{ activeMembers }],
+    [{ inactiveMembers }],
+    [{ newMembersMonth }],
+    [{ trainersWorking }],
+    [{ todaysPtSessions }],
+    [{ newLeads }],
+    membershipRows,
+    attendanceRows,
+    revenueRows,
+    peakRows,
+    recentLogs,
+    recentPayments,
+  ] = await Promise.all([
+    db.select({ currentlyInside: count() }).from(attendanceLogs).where(and(eq(attendanceLogs.organizationId, orgId), isNull(attendanceLogs.checkOutAt))),
+    db.select({ todaysCheckins: count() }).from(attendanceLogs).where(and(eq(attendanceLogs.organizationId, orgId), gte(attendanceLogs.checkInAt, today), lte(attendanceLogs.checkInAt, tomorrow))),
+    db.select({ todaysRevenue: sum(paymentTransactions.totalAmount) }).from(paymentTransactions).where(and(eq(paymentTransactions.organizationId, orgId), eq(paymentTransactions.status, 'PAID'), gte(paymentTransactions.createdAt, today), lte(paymentTransactions.createdAt, tomorrow))),
+    db.select({ monthRevenue: sum(paymentTransactions.totalAmount) }).from(paymentTransactions).where(and(eq(paymentTransactions.organizationId, orgId), eq(paymentTransactions.status, 'PAID'), gte(paymentTransactions.createdAt, thisMonth))),
+    db.select({ pendingAmount: sum(paymentTransactions.totalAmount) }).from(paymentTransactions).where(and(eq(paymentTransactions.organizationId, orgId), inArray(paymentTransactions.status, ['PENDING', 'PARTIALLY_PAID']))),
+    db.select({ activeMembers: count() }).from(members).where(and(eq(members.organizationId, orgId), isNull(members.deletedAt), eq(members.status, 'ACTIVE'))),
+    db.select({ inactiveMembers: count() }).from(members).where(and(eq(members.organizationId, orgId), isNull(members.deletedAt), inArray(members.status, ['ARCHIVED', 'EXPIRED']))),
+    db.select({ newMembersMonth: count() }).from(members).where(and(eq(members.organizationId, orgId), isNull(members.deletedAt), gte(members.createdAt, thisMonth))),
+    db.select({ trainersWorking: count() }).from(trainers).where(and(eq(trainers.organizationId, orgId), isNull(trainers.deletedAt), eq(trainers.status, 'ACTIVE'))),
+    db.select({ todaysPtSessions: count() }).from(ptSessions).where(and(eq(ptSessions.organizationId, orgId), gte(ptSessions.scheduledAt, today), lte(ptSessions.scheduledAt, tomorrow), eq(ptSessions.status, 'UPCOMING'))),
+    db.select({ newLeads: count() }).from(leads).where(and(eq(leads.organizationId, orgId), isNull(leads.deletedAt), gte(leads.createdAt, thisMonth))),
+    db.select({ status: memberMemberships.status, count: count() }).from(memberMemberships).innerJoin(members, eq(memberMemberships.memberId, members.id)).where(and(eq(members.organizationId, orgId), isNull(members.deletedAt))).groupBy(memberMemberships.status),
+    db.select({ checkInAt: attendanceLogs.checkInAt }).from(attendanceLogs).where(and(eq(attendanceLogs.organizationId, orgId), gte(attendanceLogs.checkInAt, attendanceSince))),
+    db.select({ createdAt: paymentTransactions.createdAt, totalAmount: paymentTransactions.totalAmount }).from(paymentTransactions).where(and(eq(paymentTransactions.organizationId, orgId), eq(paymentTransactions.status, 'PAID'), gte(paymentTransactions.createdAt, revenueSince))),
+    db.select({ checkInAt: attendanceLogs.checkInAt }).from(attendanceLogs).where(and(eq(attendanceLogs.organizationId, orgId), gte(attendanceLogs.checkInAt, today), lte(attendanceLogs.checkInAt, tomorrow))),
+    db.select({ id: attendanceLogs.id, memberId: attendanceLogs.memberId, memberName: attendanceLogs.memberName, checkInAt: attendanceLogs.checkInAt, checkOutAt: attendanceLogs.checkOutAt, checkInMethod: attendanceLogs.checkInMethod }).from(attendanceLogs).where(eq(attendanceLogs.organizationId, orgId)).orderBy(desc(attendanceLogs.checkInAt)).limit(6),
+    db.select({ id: paymentTransactions.id, memberId: paymentTransactions.memberId, memberName: paymentTransactions.memberName, amount: paymentTransactions.totalAmount, paymentMethod: paymentTransactions.paymentMethod, status: paymentTransactions.status, createdAt: paymentTransactions.createdAt, referenceId: paymentTransactions.referenceId, description: paymentTransactions.description }).from(paymentTransactions).where(eq(paymentTransactions.organizationId, orgId)).orderBy(desc(paymentTransactions.createdAt)).limit(5),
+  ]);
+
+  const membershipCount = Object.fromEntries(membershipRows.map(row => [row.status, Number(row.count)]));
+  const attendanceMap = new Map<string, number>();
+  for (let day = 0; day < 7; day += 1) {
+    const date = new Date(attendanceSince);
+    date.setDate(date.getDate() + day);
+    attendanceMap.set(date.toISOString().slice(0, 10), 0);
+  }
+  attendanceRows.forEach(row => {
+    const key = row.checkInAt.toISOString().slice(0, 10);
+    if (attendanceMap.has(key)) attendanceMap.set(key, (attendanceMap.get(key) ?? 0) + 1);
+  });
+  const attendanceChart = [...attendanceMap.entries()].map(([date, count]) => ({ day: new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' }), count }));
+
+  const revenueMap = new Map<string, number>();
+  for (let month = 0; month < 6; month += 1) {
+    const date = new Date(now.getFullYear(), now.getMonth() - 5 + month, 1);
+    revenueMap.set(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`, 0);
+  }
+  revenueRows.forEach(row => {
+    const key = `${row.createdAt.getFullYear()}-${String(row.createdAt.getMonth() + 1).padStart(2, '0')}`;
+    revenueMap.set(key, (revenueMap.get(key) ?? 0) + asNumber(row.totalAmount));
+  });
+  const revenueChart = [...revenueMap.entries()].map(([month, revenue]) => ({ month: new Date(`${month}-01T00:00:00`).toLocaleDateString('en-US', { month: 'short' }), revenue }));
+
+  const peakMap = new Map<number, number>();
+  peakRows.forEach(row => peakMap.set(row.checkInAt.getHours(), (peakMap.get(row.checkInAt.getHours()) ?? 0) + 1));
+  const peakHours = [...peakMap.entries()].sort(([a], [b]) => a - b).map(([hour, count]) => ({ hour: `${String(hour).padStart(2, '0')}:00`, count }));
+
+  const [{ expiringIn7Days }] = await db
+    .select({ expiringIn7Days: count() })
+    .from(memberMemberships)
+    .innerJoin(members, eq(memberMemberships.memberId, members.id))
+    .where(and(
+      eq(members.organizationId, orgId),
+      isNull(members.deletedAt),
+      eq(memberMemberships.status, 'ACTIVE'),
+      gte(memberMemberships.endDate, todayDate),
+      lte(memberMemberships.endDate, expiryDate),
+    ));
+
+  return {
+    stats: {
+      todaysCheckins: Number(todaysCheckins), currentlyInside: Number(currentlyInside), todaysRevenue: asNumber(todaysRevenue), monthRevenue: asNumber(monthRevenue), pendingAmount: asNumber(pendingAmount),
+      expiringIn7Days: Number(expiringIn7Days), expiredMemberships: membershipCount.EXPIRED ?? 0, newMembersMonth: Number(newMembersMonth), activeMembers: Number(activeMembers), inactiveMembers: Number(inactiveMembers), trainersWorking: Number(trainersWorking), todaysPtSessions: Number(todaysPtSessions), newLeads: Number(newLeads),
+    },
+    revenueChart, attendanceChart, peakHours,
+    recentLogs: recentLogs.map(log => ({ ...log, date: log.checkInAt.toISOString().slice(0, 10), checkIn: log.checkInAt.toISOString().slice(11, 16), checkOut: log.checkOutAt?.toISOString().slice(11, 16) ?? null, method: log.checkInMethod })),
+    recentPayments: recentPayments.map(payment => ({ ...payment, amount: asNumber(payment.amount), date: payment.createdAt.toISOString().slice(0, 10), method: payment.paymentMethod, refId: payment.referenceId ?? '', plan: payment.description ?? '' })),
+  };
+}
