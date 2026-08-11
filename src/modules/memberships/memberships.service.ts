@@ -2,14 +2,70 @@ import { addDays, parseISO } from 'date-fns';
 import { db } from '../../db/index';
 import { membershipPlans, memberMemberships, membershipEvents } from '../../db/schema/memberships.schema';
 import { members } from '../../db/schema/members.schema';
-import { eq, and, isNull, desc, asc, count, sql } from 'drizzle-orm';
+import { eq, and, isNull, desc, asc, count, sql, lt } from 'drizzle-orm';
 import { AppError, ErrorCode } from '../../common/errors/AppError';
 import { parsePagination, paginationToLimitOffset, buildPaginatedResponse } from '../../common/pagination/paginate';
 import { auditLog } from '../../common/audit/auditLog';
 import { AuditAction } from '../../db/schema/audit.schema';
 import { createLogger } from '../../common/logger/index';
+import { generateMembershipInvoiceService } from '../payments/payments.service';
+import { sendTextMessage } from '../notifications/notifications.service';
+import { getInvoiceSettingsService } from '../org/org.service';
+import { invoices } from '../../db/schema/payments.schema';
+import { organizations } from '../../db/schema/org.schema';
 
 const log = createLogger('memberships-service');
+
+function currentDateInTimeZone(timeZone: string) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+    const part = (type: string) => parts.find(item => item.type === type)?.value;
+    return `${part('year')}-${part('month')}-${part('day')}`;
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+async function sendRenewalNotification(
+  orgId: string,
+  memberId: string,
+  membership: typeof memberMemberships.$inferSelect,
+  plan: typeof membershipPlans.$inferSelect,
+  actorId: string,
+) {
+  const invoice = await generateMembershipInvoiceService(orgId, {
+    memberId,
+    membershipId: membership.id,
+    planName: plan.name,
+    price: plan.price,
+    gstPercent: plan.gstPercent,
+    notes: membership.notes ?? undefined,
+  }, actorId);
+  const settings = await getInvoiceSettingsService(orgId);
+  if (!settings.autoSendOnRenewal) return;
+
+  const [member] = await db.select({ firstName: members.firstName, lastName: members.lastName, phone: members.phone })
+    .from(members)
+    .where(and(eq(members.id, memberId), eq(members.organizationId, orgId), isNull(members.deletedAt)))
+    .limit(1);
+  if (!member?.phone) return;
+
+  const memberName = `${member.firstName} ${member.lastName}`.trim();
+  const delivery = await sendTextMessage({
+    organizationId: orgId,
+    memberId,
+    invoiceId: invoice.id,
+    eventType: 'MEMBERSHIP_RENEWED',
+    phone: member.phone,
+    text: `Hello ${memberName}, your ${plan.name} membership has been renewed until ${membership.endDate}. Invoice ${invoice.invoiceNumber}: ${invoice.publicViewUrl}`,
+    idempotencyKey: `membership-renewed:${membership.id}`,
+    actorId,
+  });
+
+  if (delivery.status === 'SENT') {
+    await db.update(invoices).set({ status: 'SENT', updatedAt: new Date() }).where(eq(invoices.id, invoice.id));
+  }
+}
 
 // ── Helper: emit membership event ─────────────────────────────────────────────
 
@@ -303,7 +359,73 @@ export async function renewMembershipService(
 
   await emitEvent(membership!.id, memberId, 'RENEWED', actorId, actorName, data.notes, { plan: { name: plan.name } });
   await auditLog({ organizationId: orgId, actorId, action: AuditAction.MEMBERSHIP_RENEWED, entityType: 'membership', entityId: membership!.id });
+  try {
+    await sendRenewalNotification(orgId, memberId, membership!, plan, actorId);
+  } catch (error) {
+    // A provider outage must not undo a completed membership renewal.
+    log.error({ err: error, memberId, membershipId: membership!.id }, 'Renewal notification workflow failed');
+  }
   return membership;
+}
+
+export async function expireDueMembershipsService() {
+  const candidates = await db.select({
+    membership: memberMemberships,
+    organizationId: members.organizationId,
+    timezone: organizations.timezone,
+    firstName: members.firstName,
+    lastName: members.lastName,
+    phone: members.phone,
+  })
+    .from(memberMemberships)
+    .innerJoin(members, eq(members.id, memberMemberships.memberId))
+    .innerJoin(organizations, eq(organizations.id, members.organizationId))
+    .where(and(
+      eq(memberMemberships.status, 'ACTIVE'),
+      isNull(members.deletedAt),
+    ));
+
+  let expired = 0;
+  let notified = 0;
+  for (const candidate of candidates) {
+    const today = currentDateInTimeZone(candidate.timezone);
+    if (candidate.membership.endDate >= today) continue;
+    const [updated] = await db.update(memberMemberships)
+      .set({ status: 'EXPIRED', updatedAt: new Date() })
+      .where(and(
+        eq(memberMemberships.id, candidate.membership.id),
+        eq(memberMemberships.status, 'ACTIVE'),
+        lt(memberMemberships.endDate, today),
+      ))
+      .returning();
+    if (!updated) continue;
+
+    expired += 1;
+    await auditLog({
+      organizationId: candidate.organizationId,
+      action: AuditAction.MEMBERSHIP_EXPIRED,
+      entityType: 'membership',
+      entityId: updated.id,
+      description: `Membership expired on ${updated.endDate}`,
+    });
+
+    if (!candidate.phone) continue;
+    try {
+      const memberName = `${candidate.firstName} ${candidate.lastName}`.trim();
+      const delivery = await sendTextMessage({
+        organizationId: candidate.organizationId,
+        memberId: updated.memberId,
+        eventType: 'MEMBERSHIP_EXPIRED',
+        phone: candidate.phone,
+        text: `Hello ${memberName}, your ${updated.planName} membership expired on ${updated.endDate}. Please contact us to renew your plan.`,
+        idempotencyKey: `membership-expired:${updated.id}`,
+      });
+      if (delivery.status === 'SENT') notified += 1;
+    } catch (error) {
+      log.error({ err: error, membershipId: updated.id }, 'Expiry notification workflow failed');
+    }
+  }
+  return { expired, notified };
 }
 
 // ── Freeze Membership ─────────────────────────────────────────────────────────

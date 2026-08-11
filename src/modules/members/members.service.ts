@@ -20,6 +20,15 @@ import { config } from '../../config/env';
 
 const log = createLogger('members-service');
 
+function normalizeIndianMobile(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  const localNumber = digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : digits;
+  if (!/^[6-9]\d{9}$/.test(localNumber)) {
+    throw AppError.badRequest(ErrorCode.BAD_REQUEST, 'Phone must be a valid 10-digit Indian mobile number');
+  }
+  return `+91${localNumber}`;
+}
+
 // ── Helper: generate member number ───────────────────────────────────────────
 
 async function generateMemberNumber(orgId: string): Promise<string> {
@@ -184,6 +193,7 @@ export async function createMemberService(
   actorId: string,
 ) {
   const memberNumber = await generateMemberNumber(orgId);
+  const phone = normalizeIndianMobile(data.phone);
 
   const [member] = await db
     .insert(members)
@@ -194,7 +204,7 @@ export async function createMemberService(
       firstName: data.firstName,
       lastName: data.lastName,
       email: data.email,
-      phone: data.phone,
+      phone,
       gender: data.gender as any,
       dob: data.dob,
       address: data.address,
@@ -300,10 +310,13 @@ export async function updateMemberService(
   actorId: string,
 ) {
   const before = await getMemberService(orgId, memberId);
+  const updateData = data.phone === undefined
+    ? data
+    : { ...data, phone: normalizeIndianMobile(data.phone) };
 
   const [updated] = await db
     .update(members)
-    .set({ ...data, updatedAt: new Date() })
+    .set({ ...updateData, updatedAt: new Date() })
     .where(and(eq(members.id, memberId), eq(members.organizationId, orgId), isNull(members.deletedAt)))
     .returning();
 

@@ -124,6 +124,25 @@ export async function isStrictPaymentPolicyEnabled(orgId: string): Promise<boole
     && value.strictPaymentPolicy === true;
 }
 
+export type InvoiceSettings = {
+  prefix: string;
+  footer: string;
+  dueDays: number;
+  autoSendOnRenewal: boolean;
+};
+
+export async function getInvoiceSettingsService(orgId: string): Promise<InvoiceSettings> {
+  const allSettings = await getSettingsService(orgId);
+  const value = allSettings['invoice'];
+  const invoice = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {};
+  return {
+    prefix: typeof invoice.prefix === 'string' && invoice.prefix.trim() ? invoice.prefix.trim().toUpperCase() : 'GYM',
+    footer: typeof invoice.footer === 'string' ? invoice.footer.trim() : '',
+    dueDays: typeof invoice.dueDays === 'number' && Number.isInteger(invoice.dueDays) ? invoice.dueDays : 0,
+    autoSendOnRenewal: invoice.autoSendOnRenewal !== false,
+  };
+}
+
 export async function upsertSettingService(
   orgId: string,
   category: string,
@@ -162,6 +181,24 @@ export async function upsertSettingService(
       || typeof settingValue.closingTime !== 'string' || !timePattern.test(settingValue.closingTime)) {
       throw AppError.badRequest(ErrorCode.BAD_REQUEST, 'Branch opening and closing times must use HH:mm format');
     }
+  } else if (category === 'invoice') {
+    const prefix = settingValue.prefix;
+    const footer = settingValue.footer;
+    const dueDays = settingValue.dueDays;
+    const autoSendOnRenewal = settingValue.autoSendOnRenewal;
+    if (typeof prefix !== 'string' || !/^[A-Za-z0-9-]{1,20}$/.test(prefix)) {
+      throw AppError.badRequest(ErrorCode.BAD_REQUEST, 'Invoice prefix must contain 1-20 letters, numbers, or hyphens');
+    }
+    if (typeof footer !== 'string' || footer.length > 500) {
+      throw AppError.badRequest(ErrorCode.BAD_REQUEST, 'Invoice footer must be 500 characters or fewer');
+    }
+    if (typeof dueDays !== 'number' || !Number.isInteger(dueDays) || dueDays < 0 || dueDays > 365) {
+      throw AppError.badRequest(ErrorCode.BAD_REQUEST, 'Invoice due days must be a whole number between 0 and 365');
+    }
+    if (typeof autoSendOnRenewal !== 'boolean') {
+      throw AppError.badRequest(ErrorCode.BAD_REQUEST, 'Invoice settings must include autoSendOnRenewal');
+    }
+    value = { prefix: prefix.toUpperCase(), footer: footer.trim(), dueDays, autoSendOnRenewal };
   }
 
   // Upsert — update if exists, insert if not

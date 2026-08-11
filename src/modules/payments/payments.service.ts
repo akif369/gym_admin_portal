@@ -9,15 +9,25 @@ import { parsePagination, paginationToLimitOffset, buildPaginatedResponse } from
 import { auditLog } from '../../common/audit/auditLog';
 import { AuditAction } from '../../db/schema/audit.schema';
 import { createLogger } from '../../common/logger/index';
+import { addDays } from 'date-fns';
+import { randomBytes, randomUUID } from 'crypto';
+import { organizations } from '../../db/schema/org.schema';
+import { getInvoiceSettingsService } from '../org/org.service';
+import { config } from '../../config/env';
+import { sendTextMessage } from '../notifications/notifications.service';
 
 const log = createLogger('payments-service');
 
 // ── Invoice number generator ──────────────────────────────────────────────────
 
-async function generateInvoiceNumber(orgId: string): Promise<string> {
+async function generateInvoiceNumber(orgId: string, prefix: string): Promise<string> {
   const [{ total }] = await db.select({ total: count() }).from(invoices).where(eq(invoices.organizationId, orgId));
   const year = new Date().getFullYear();
-  return `GYM-${year}-${String((total ?? 0) + 1).padStart(4, '0')}`;
+  return `${prefix}-${year}-${String((total ?? 0) + 1).padStart(4, '0')}`;
+}
+
+function invoiceViewUrl(token: string) {
+  return `${config.publicApiUrl}${config.apiPrefix}/invoices/public/${token}`;
 }
 
 // ── List Payments ─────────────────────────────────────────────────────────────
@@ -192,13 +202,14 @@ export async function listInvoicesService(orgId: string, query: Record<string, u
   const items = await db.select().from(invoices).where(eq(invoices.organizationId, orgId))
     .orderBy(desc(invoices.createdAt)).limit(limit).offset(offset);
 
-  return buildPaginatedResponse(items, total ?? 0, { page, pageSize });
+  return buildPaginatedResponse(items.map(invoice => ({ ...invoice, publicViewUrl: invoiceViewUrl(invoice.publicToken) })), total ?? 0, { page, pageSize });
 }
 
 export async function generateInvoiceService(
   orgId: string,
   data: {
     memberId?: string;
+    membershipId?: string;
     lineItems: { description: string; quantity: number; unitPrice: number; gstPercent: number }[];
     notes?: string;
     footer?: string;
@@ -206,13 +217,19 @@ export async function generateInvoiceService(
   },
   actorId: string,
 ) {
-  let memberName: string | undefined;
-  if (data.memberId) {
-    const [m] = await db.select({ firstName: members.firstName, lastName: members.lastName }).from(members).where(eq(members.id, data.memberId)).limit(1);
-    if (m) memberName = `${m.firstName} ${m.lastName}`;
+  if (!Array.isArray(data.lineItems) || data.lineItems.length === 0) {
+    throw AppError.badRequest(ErrorCode.BAD_REQUEST, 'Add at least one invoice line item');
   }
 
-  const invoiceNumber = await generateInvoiceNumber(orgId);
+  let memberName: string | undefined;
+  if (data.memberId) {
+    const [m] = await db.select({ firstName: members.firstName, lastName: members.lastName }).from(members)
+      .where(and(eq(members.id, data.memberId), eq(members.organizationId, orgId), isNull(members.deletedAt))).limit(1);
+    if (!m) throw AppError.notFound(ErrorCode.MEMBER_NOT_FOUND, 'Member not found');
+    memberName = `${m.firstName} ${m.lastName}`.trim();
+  }
+
+  const invoiceSettings = await getInvoiceSettingsService(orgId);
 
   let subtotal = 0;
   let gstTotal = 0;
@@ -226,35 +243,41 @@ export async function generateInvoiceService(
 
   const totalAmount = subtotal + gstTotal;
 
-  const [invoice] = await db
-    .insert(invoices)
-    .values({
+  const invoice = await db.transaction(async (tx) => {
+    // The advisory lock makes configured invoice numbering safe across API instances.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`invoice-number:${orgId}`}))`);
+    const invoiceNumber = await generateInvoiceNumber(orgId, invoiceSettings.prefix);
+    const [created] = await tx.insert(invoices).values({
       organizationId: orgId,
       memberId: data.memberId,
+      membershipId: data.membershipId,
       memberName,
       invoiceNumber,
+      publicToken: randomBytes(24).toString('base64url'),
       subtotal: String(subtotal),
       gstAmount: String(gstTotal),
+      gstPercent: String(data.lineItems[0]!.gstPercent),
       totalAmount: String(totalAmount),
-      status: 'SENT',
+      status: 'DRAFT',
       notes: data.notes,
-      footer: data.footer,
-      dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
+      footer: data.footer ?? invoiceSettings.footer,
+      dueDate: data.dueDate ? new Date(data.dueDate) : invoiceSettings.dueDays > 0 ? addDays(new Date(), invoiceSettings.dueDays) : undefined,
       createdBy: actorId,
-    })
-    .returning();
+    }).returning();
 
-  // Line items
-  for (const li of lineItemData) {
-    await db.insert(invoiceLineItems).values({
-      invoiceId: invoice!.id,
-      description: li.description,
-      quantity: li.quantity,
-      unitPrice: String(li.unitPrice),
-      gstPercent: String(li.gstPercent),
-      totalAmount: li.totalAmount,
-    });
-  }
+    for (const li of lineItemData) {
+      await tx.insert(invoiceLineItems).values({
+        invoiceId: created!.id,
+        description: li.description,
+        quantity: li.quantity,
+        unitPrice: String(li.unitPrice),
+        gstPercent: String(li.gstPercent),
+        totalAmount: li.totalAmount,
+      });
+    }
+    return created!;
+  });
+  const invoiceNumber = invoice.invoiceNumber;
 
   await auditLog({
     organizationId: orgId,
@@ -265,7 +288,25 @@ export async function generateInvoiceService(
     description: `Invoice ${invoiceNumber} generated: ₹${totalAmount}`,
   });
 
-  return { ...invoice, lineItems: lineItemData };
+  return { ...invoice, lineItems: lineItemData, publicViewUrl: invoiceViewUrl(invoice.publicToken) };
+}
+
+export async function generateMembershipInvoiceService(
+  orgId: string,
+  data: { memberId: string; membershipId: string; planName: string; price: string; gstPercent: string; notes?: string },
+  actorId: string,
+) {
+  const [existing] = await db.select().from(invoices)
+    .where(and(eq(invoices.organizationId, orgId), eq(invoices.membershipId, data.membershipId)))
+    .limit(1);
+  if (existing) return getInvoiceService(orgId, existing.id);
+
+  return generateInvoiceService(orgId, {
+    memberId: data.memberId,
+    membershipId: data.membershipId,
+    lineItems: [{ description: `Membership renewal - ${data.planName}`, quantity: 1, unitPrice: Number(data.price), gstPercent: Number(data.gstPercent) }],
+    notes: data.notes,
+  }, actorId);
 }
 
 export async function getInvoiceService(orgId: string, invoiceId: string) {
@@ -277,13 +318,17 @@ export async function getInvoiceService(orgId: string, invoiceId: string) {
   if (!invoice) throw AppError.notFound(ErrorCode.INVOICE_NOT_FOUND, 'Invoice not found');
 
   const lineItems = await db.select().from(invoiceLineItems).where(eq(invoiceLineItems.invoiceId, invoiceId));
-  return { ...invoice, lineItems };
+  return { ...invoice, lineItems, publicViewUrl: invoiceViewUrl(invoice.publicToken) };
 }
 
-function maskPhone(phone: string) {
-  const normalized = phone.replace(/\s+/g, '');
-  if (normalized.length <= 4) return '****';
-  return `${'*'.repeat(Math.max(0, normalized.length - 4))}${normalized.slice(-4)}`;
+export async function getPublicInvoiceService(publicToken: string) {
+  const [row] = await db.select({ invoice: invoices, organization: organizations }).from(invoices)
+    .innerJoin(organizations, eq(organizations.id, invoices.organizationId))
+    .where(eq(invoices.publicToken, publicToken))
+    .limit(1);
+  if (!row) throw AppError.notFound(ErrorCode.INVOICE_NOT_FOUND, 'Invoice not found');
+  const lineItems = await db.select().from(invoiceLineItems).where(eq(invoiceLineItems.invoiceId, row.invoice.id));
+  return { ...row.invoice, lineItems, organization: row.organization, publicViewUrl: invoiceViewUrl(row.invoice.publicToken) };
 }
 
 export async function sendInvoiceWhatsAppService(orgId: string, invoiceId: string, actorId: string) {
@@ -307,15 +352,20 @@ export async function sendInvoiceWhatsAppService(orgId: string, invoiceId: strin
   }
 
   const memberName = `${member.firstName} ${member.lastName}`.trim();
-  const message = `Hello ${memberName}, your invoice ${invoice.invoiceNumber} from GymFlow totals ${invoice.totalAmount}.`;
-  const delivery = {
-    status: 'QUEUED' as const,
-    provider: 'NOT_CONFIGURED' as const,
+  const delivery = await sendTextMessage({
+    organizationId: orgId,
+    memberId: member.id,
     invoiceId: invoice.id,
-    invoiceNumber: invoice.invoiceNumber,
-    recipient: maskPhone(member.phone),
-    message,
-  };
+    eventType: 'INVOICE',
+    phone: member.phone,
+    text: `Hello ${memberName}, your invoice ${invoice.invoiceNumber} totals Rs. ${invoice.totalAmount}. View it here: ${invoice.publicViewUrl}`,
+    idempotencyKey: `invoice-manual:${invoice.id}:${randomUUID()}`,
+    actorId,
+  });
+
+  if (delivery.status === 'SENT') {
+    await db.update(invoices).set({ status: 'SENT', updatedAt: new Date() }).where(eq(invoices.id, invoice.id));
+  }
 
   await auditLog({
     organizationId: orgId,
@@ -323,8 +373,8 @@ export async function sendInvoiceWhatsAppService(orgId: string, invoiceId: strin
     action: AuditAction.INVOICE_WHATSAPP_QUEUED,
     entityType: 'invoice',
     entityId: invoice.id,
-    description: `WhatsApp invoice message queued for ${invoice.invoiceNumber}`,
-    afterState: delivery,
+    description: `Invoice message requested for ${invoice.invoiceNumber}`,
+    afterState: { status: delivery.status, provider: delivery.provider, recipient: delivery.recipient },
   });
 
   log.info({
@@ -332,9 +382,9 @@ export async function sendInvoiceWhatsAppService(orgId: string, invoiceId: strin
     invoiceNumber: invoice.invoiceNumber,
     recipient: delivery.recipient,
     provider: delivery.provider,
-  }, 'Invoice WhatsApp message queued; provider integration is pending');
+  }, 'Invoice message delivery completed');
 
-  return delivery;
+  return { ...delivery, invoiceNumber: invoice.invoiceNumber, publicViewUrl: invoice.publicViewUrl };
 }
 
 export async function getMemberPaymentsService(orgId: string, memberId: string, query: Record<string, unknown>) {

@@ -15,6 +15,13 @@
       "when": 1786221576716,
       "tag": "0001_dazzling_patriot",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786222000000,
+      "tag": "0002_invoice_public_links_and_messages",
+      "breakpoints": true
     }
   ]
 }

@@ -1,8 +1,9 @@
-import { pgTable, uuid, text, timestamp, numeric, integer, pgEnum, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, numeric, integer, pgEnum, boolean, uniqueIndex } from 'drizzle-orm/pg-core';
 import { organizations } from './org.schema';
 import { branches } from './org.schema';
 import { members } from './members.schema';
 import { users } from './auth.schema';
+import { memberMemberships } from './memberships.schema';
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
 
@@ -67,8 +68,10 @@ export const invoices = pgTable('invoices', {
     .notNull()
     .references(() => organizations.id, { onDelete: 'cascade' }),
   memberId: uuid('member_id').references(() => members.id),
+  membershipId: uuid('membership_id').references(() => memberMemberships.id, { onDelete: 'set null' }),
   memberName: text('member_name'), // denormalized
   invoiceNumber: text('invoice_number').notNull(), // e.g. GYM-2026-001
+  publicToken: text('public_token').notNull().unique(),
   subtotal: numeric('subtotal', { precision: 12, scale: 2 }).notNull(),
   gstAmount: numeric('gst_amount', { precision: 12, scale: 2 }).notNull().default('0'),
   gstPercent: numeric('gst_percent', { precision: 5, scale: 2 }).notNull().default('18'),
@@ -81,7 +84,10 @@ export const invoices = pgTable('invoices', {
   createdBy: uuid('created_by').references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => [
+  uniqueIndex('invoices_organization_invoice_number_unique').on(table.organizationId, table.invoiceNumber),
+  uniqueIndex('invoices_membership_id_unique').on(table.membershipId),
+]);
 
 // ── Invoice Line Items ─────────────────────────────────────────────────────────
 

@@ -22,6 +22,14 @@ function optionalEnvNumber(key: string, defaultValue: number): number {
   return parsed;
 }
 
+function optionalEnvBoolean(key: string, defaultValue: boolean): boolean {
+  const raw = process.env[key];
+  if (raw === undefined) return defaultValue;
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  throw new Error(`Environment variable ${key} must be true or false, got: ${raw}`);
+}
+
 export const config = {
   // ── Server ──────────────────────────────────────────────────
   nodeEnv: optionalEnv('NODE_ENV', 'development') as 'development' | 'production' | 'test',
@@ -29,6 +37,7 @@ export const config = {
   host: optionalEnv('HOST', '0.0.0.0'),
   appName: optionalEnv('APP_NAME', 'GymFlow'),
   apiPrefix: optionalEnv('API_PREFIX', '/api/v1'),
+  publicApiUrl: optionalEnv('PUBLIC_API_URL', `http://localhost:${optionalEnvNumber('PORT', 3001)}`).replace(/\/$/, ''),
 
   // ── Database ─────────────────────────────────────────────────
   databaseUrl: requireEnv('DATABASE_URL'),
@@ -66,6 +75,15 @@ export const config = {
 
   // ── Logging ──────────────────────────────────────────────────
   logLevel: optionalEnv('LOG_LEVEL', 'info') as 'debug' | 'info' | 'warn' | 'error',
+
+  evolutionGo: {
+    enabled: optionalEnvBoolean('EVOLUTION_GO_ENABLED', false),
+    endpoint: optionalEnv('EVOLUTION_GO_URL', ''),
+    apiKey: process.env['EVOLUTION_GO_API_KEY'],
+    defaultCountryCode: optionalEnv('EVOLUTION_GO_DEFAULT_COUNTRY_CODE', '91'),
+    timeoutMs: optionalEnvNumber('EVOLUTION_GO_TIMEOUT_MS', 10_000),
+  },
+  membershipExpirySweepIntervalMs: optionalEnvNumber('MEMBERSHIP_EXPIRY_SWEEP_INTERVAL_MS', 60 * 60 * 1000),
 
   // ── Derived ──────────────────────────────────────────────────
   isProduction: optionalEnv('NODE_ENV', 'development') === 'production',

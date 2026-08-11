@@ -21,6 +21,9 @@ export * from './attendance.schema';
 // Payments
 export * from './payments.schema';
 
+// Messaging / notification delivery log
+export * from './notifications.schema';
+
 // Trainers
 export * from './trainers.schema';
 
