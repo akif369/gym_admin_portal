@@ -42,6 +42,7 @@ export async function generateInvoicePdfBuffer(invoice: Awaited<ReturnType<typeo
   const html = renderInvoiceHtml(invoice);
   const browser = await puppeteer.launch({
     headless: true,
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
   });
   try {
