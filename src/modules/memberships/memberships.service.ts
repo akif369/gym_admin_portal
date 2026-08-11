@@ -8,8 +8,8 @@ import { parsePagination, paginationToLimitOffset, buildPaginatedResponse } from
 import { auditLog } from '../../common/audit/auditLog';
 import { AuditAction } from '../../db/schema/audit.schema';
 import { createLogger } from '../../common/logger/index';
-import { generateMembershipInvoiceService } from '../payments/payments.service';
-import { sendTextMessage } from '../notifications/notifications.service';
+import { generateMembershipInvoiceService, getPublicInvoiceService, generateInvoicePdfBuffer } from '../payments/payments.service';
+import { sendTextMessage, sendMediaMessage } from '../notifications/notifications.service';
 import { getInvoiceSettingsService } from '../org/org.service';
 import { invoices } from '../../db/schema/payments.schema';
 import { organizations } from '../../db/schema/org.schema';
@@ -68,13 +68,7 @@ async function sendRenewalNotification(
   if (!member?.phone) return;
 
   const memberName = `${member.firstName} ${member.lastName}`.trim();
-  const delivery = await sendTextMessage({
-    organizationId: orgId,
-    memberId,
-    invoiceId: invoice.id,
-    eventType: 'MEMBERSHIP_RENEWED',
-    phone: member.phone,
-    text: `Hello ${memberName} 👋
+  const text = `Hello ${memberName} 👋
 
 Your *${plan.name}* membership has been renewed successfully ✅
 
@@ -85,10 +79,36 @@ Your *${plan.name}* membership has been renewed successfully ✅
 View or download your invoice:
 ${invoice.publicViewUrl}
 
-Thank you for training with us!`,
-    idempotencyKey: `membership-renewed:${membership.id}`,
-    actorId,
-  });
+Thank you for training with us!`;
+
+  let delivery;
+  if (settings.attachInvoicePdf) {
+    const publicInvoice = await getPublicInvoiceService(invoice.publicToken);
+    const pdfBuffer = await generateInvoicePdfBuffer(publicInvoice);
+    delivery = await sendMediaMessage({
+      organizationId: orgId,
+      memberId,
+      invoiceId: invoice.id,
+      eventType: 'MEMBERSHIP_RENEWED',
+      phone: member.phone,
+      text,
+      pdfBuffer,
+      filename: `Invoice_${invoice.invoiceNumber}.pdf`,
+      idempotencyKey: `membership-renewed:${membership.id}`,
+      actorId,
+    });
+  } else {
+    delivery = await sendTextMessage({
+      organizationId: orgId,
+      memberId,
+      invoiceId: invoice.id,
+      eventType: 'MEMBERSHIP_RENEWED',
+      phone: member.phone,
+      text,
+      idempotencyKey: `membership-renewed:${membership.id}`,
+      actorId,
+    });
+  }
 
   if (delivery.status === 'SENT') {
     await db.update(invoices).set({ status: 'SENT', updatedAt: new Date() }).where(eq(invoices.id, invoice.id));

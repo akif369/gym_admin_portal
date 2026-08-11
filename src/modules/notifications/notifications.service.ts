@@ -19,6 +19,11 @@ type SendTextInput = {
   actorId?: string;
 };
 
+type SendMediaInput = SendTextInput & {
+  pdfBuffer: Buffer;
+  filename: string;
+};
+
 function maskPhone(phone: string) {
   if (phone.length <= 4) return '****';
   return `${'*'.repeat(phone.length - 4)}${phone.slice(-4)}`;
@@ -43,6 +48,10 @@ function normalizePhone(phone: string): string {
 
 function sendTextEndpoint(baseUrl: string): string {
   return new URL(`${baseUrl}/send/text`).toString();
+}
+
+function sendMediaEndpoint(baseUrl: string): string {
+  return new URL(`${baseUrl}/send/media`).toString();
 }
 
 function providerMessageId(payload: string): string | undefined {
@@ -147,3 +156,105 @@ export async function sendTextMessage(input: SendTextInput) {
     return { ...failed!, recipient: maskPhone(recipient) };
   }
 }
+
+// ── Media (document) message ──────────────────────────────────────────────────
+
+export async function sendMediaMessage(input: SendMediaInput) {
+  const recipient = normalizePhone(input.phone);
+  const [existing] = await db
+    .select()
+    .from(messageDeliveries)
+    .where(and(
+      eq(messageDeliveries.organizationId, input.organizationId),
+      eq(messageDeliveries.idempotencyKey, input.idempotencyKey),
+    ))
+    .limit(1);
+
+  if (existing) return { ...existing, recipient: maskPhone(existing.recipient), alreadyProcessed: true };
+
+  const configured = config.evolutionGo.enabled;
+  const [delivery] = await db.insert(messageDeliveries).values({
+    organizationId: input.organizationId,
+    memberId: input.memberId,
+    invoiceId: input.invoiceId,
+    eventType: input.eventType,
+    recipient,
+    message: input.text,
+    provider: configured ? 'EVOLUTION_GO' : 'NOT_CONFIGURED',
+    status: configured ? 'PENDING' : 'SKIPPED',
+    idempotencyKey: input.idempotencyKey,
+  }).returning();
+
+  if (!configured) {
+    log.warn({ eventType: input.eventType, recipient: maskPhone(recipient) }, 'Media message skipped because Evolution Go is not configured');
+    return { ...delivery!, recipient: maskPhone(recipient) };
+  }
+
+  try {
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      apikey: config.evolutionGo.instanceToken,
+    };
+
+    const base64 = input.pdfBuffer.toString('base64');
+    const response = await fetch(sendMediaEndpoint(config.evolutionGo.baseUrl), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        number: recipient,
+        type: 'document',
+        mimetype: 'application/pdf',
+        url: base64,
+        fileName: input.filename,
+        caption: input.text,
+      }),
+      signal: AbortSignal.timeout(config.evolutionGo.timeoutMs),
+    });
+    const payload = await response.text();
+
+    if (!response.ok) {
+      const reason = payload.replace(/\s+/g, ' ').slice(0, 500);
+      throw new Error(`Evolution Go returned HTTP ${response.status}${reason ? `: ${reason}` : ''}`);
+    }
+
+    const [sent] = await db.update(messageDeliveries)
+      .set({
+        status: 'SENT',
+        providerMessageId: providerMessageId(payload),
+        sentAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(messageDeliveries.id, delivery!.id))
+      .returning();
+
+    await auditLog({
+      organizationId: input.organizationId,
+      actorId: input.actorId,
+      action: AuditAction.MESSAGE_SENT,
+      entityType: 'message_delivery',
+      entityId: delivery!.id,
+      description: `${input.eventType} PDF document sent through Evolution Go`,
+      afterState: { status: 'SENT', provider: 'EVOLUTION_GO', recipient: maskPhone(recipient) },
+    });
+    return { ...sent!, recipient: maskPhone(recipient) };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Evolution Go media request failed';
+    const [failed] = await db.update(messageDeliveries)
+      .set({ status: 'FAILED', errorMessage, updatedAt: new Date() })
+      .where(eq(messageDeliveries.id, delivery!.id))
+      .returning();
+
+    await auditLog({
+      organizationId: input.organizationId,
+      actorId: input.actorId,
+      action: AuditAction.MESSAGE_FAILED,
+      entityType: 'message_delivery',
+      entityId: delivery!.id,
+      description: `${input.eventType} PDF document delivery failed`,
+      afterState: { status: 'FAILED', provider: 'EVOLUTION_GO', recipient: maskPhone(recipient) },
+    });
+    log.error({ err: error, eventType: input.eventType, recipient: maskPhone(recipient) }, 'Evolution Go media delivery failed');
+    return { ...failed!, recipient: maskPhone(recipient) };
+  }
+}
+

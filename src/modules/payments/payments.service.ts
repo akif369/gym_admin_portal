@@ -14,7 +14,9 @@ import { randomBytes, randomUUID } from 'crypto';
 import { organizations } from '../../db/schema/org.schema';
 import { getInvoiceSettingsService, getTaxSettingsService } from '../org/org.service';
 import { config } from '../../config/env';
-import { sendTextMessage } from '../notifications/notifications.service';
+import { sendTextMessage, sendMediaMessage } from '../notifications/notifications.service';
+import { renderInvoiceHtml } from '../../templates/invoice.template';
+import puppeteer from 'puppeteer';
 
 const log = createLogger('payments-service');
 
@@ -32,6 +34,24 @@ function invoiceViewUrl(token: string) {
 
 function roundMoney(amount: number): number {
   return Math.round((amount + Number.EPSILON) * 100) / 100;
+}
+
+// ── PDF generation ────────────────────────────────────────────────────────────
+
+export async function generateInvoicePdfBuffer(invoice: Awaited<ReturnType<typeof getPublicInvoiceService>>): Promise<Buffer> {
+  const html = renderInvoiceHtml(invoice);
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+  });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: 'load' });
+    const pdfUint8Array = await page.pdf({ format: 'A4', printBackground: true });
+    return Buffer.from(pdfUint8Array);
+  } finally {
+    await browser.close();
+  }
 }
 
 // ── List Payments ─────────────────────────────────────────────────────────────
@@ -372,17 +392,39 @@ export async function sendInvoiceWhatsAppService(orgId: string, invoiceId: strin
     throw AppError.badRequest(ErrorCode.BAD_REQUEST, 'Add a phone number to this member before sending the invoice');
   }
 
+  const invoiceSettings = await getInvoiceSettingsService(orgId);
   const memberName = `${member.firstName} ${member.lastName}`.trim();
-  const delivery = await sendTextMessage({
-    organizationId: orgId,
-    memberId: member.id,
-    invoiceId: invoice.id,
-    eventType: 'INVOICE',
-    phone: member.phone,
-    text: `Hello ${memberName}, your invoice ${invoice.invoiceNumber} totals Rs. ${invoice.totalAmount}. View it here: ${invoice.publicViewUrl}`,
-    idempotencyKey: `invoice-manual:${invoice.id}:${randomUUID()}`,
-    actorId,
-  });
+  const text = `Hello ${memberName}, your invoice ${invoice.invoiceNumber} totals Rs. ${invoice.totalAmount}. View it here: ${invoice.publicViewUrl}`;
+  const idempotencyKey = `invoice-manual:${invoice.id}:${randomUUID()}`;
+
+  let delivery;
+  if (invoiceSettings.attachInvoicePdf) {
+    const publicInvoice = await getPublicInvoiceService(invoice.publicToken);
+    const pdfBuffer = await generateInvoicePdfBuffer(publicInvoice);
+    delivery = await sendMediaMessage({
+      organizationId: orgId,
+      memberId: member.id,
+      invoiceId: invoice.id,
+      eventType: 'INVOICE',
+      phone: member.phone,
+      text,
+      pdfBuffer,
+      filename: `Invoice_${invoice.invoiceNumber}.pdf`,
+      idempotencyKey,
+      actorId,
+    });
+  } else {
+    delivery = await sendTextMessage({
+      organizationId: orgId,
+      memberId: member.id,
+      invoiceId: invoice.id,
+      eventType: 'INVOICE',
+      phone: member.phone,
+      text,
+      idempotencyKey,
+      actorId,
+    });
+  }
 
   if (delivery.status === 'SENT') {
     await db.update(invoices).set({ status: 'SENT', updatedAt: new Date() }).where(eq(invoices.id, invoice.id));

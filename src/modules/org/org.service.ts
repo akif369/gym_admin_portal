@@ -129,6 +129,7 @@ export type InvoiceSettings = {
   footer: string;
   dueDays: number;
   autoSendOnRenewal: boolean;
+  attachInvoicePdf: boolean;
 };
 
 export type TaxSettings = {
@@ -156,6 +157,7 @@ export async function getInvoiceSettingsService(orgId: string): Promise<InvoiceS
     footer: typeof invoice.footer === 'string' ? invoice.footer.trim() : '',
     dueDays: typeof invoice.dueDays === 'number' && Number.isInteger(invoice.dueDays) ? invoice.dueDays : 0,
     autoSendOnRenewal: invoice.autoSendOnRenewal !== false,
+    attachInvoicePdf: invoice.attachInvoicePdf === true,
   };
 }
 
@@ -202,6 +204,7 @@ export async function upsertSettingService(
     const footer = settingValue.footer;
     const dueDays = settingValue.dueDays;
     const autoSendOnRenewal = settingValue.autoSendOnRenewal;
+    const attachInvoicePdf = settingValue.attachInvoicePdf;
     if (typeof prefix !== 'string' || !/^[A-Za-z0-9-]{1,20}$/.test(prefix)) {
       throw AppError.badRequest(ErrorCode.BAD_REQUEST, 'Invoice prefix must contain 1-20 letters, numbers, or hyphens');
     }
@@ -214,7 +217,10 @@ export async function upsertSettingService(
     if (typeof autoSendOnRenewal !== 'boolean') {
       throw AppError.badRequest(ErrorCode.BAD_REQUEST, 'Invoice settings must include autoSendOnRenewal');
     }
-    value = { prefix: prefix.toUpperCase(), footer: footer.trim(), dueDays, autoSendOnRenewal };
+    if (attachInvoicePdf !== undefined && typeof attachInvoicePdf !== 'boolean') {
+      throw AppError.badRequest(ErrorCode.BAD_REQUEST, 'attachInvoicePdf must be a boolean');
+    }
+    value = { prefix: prefix.toUpperCase(), footer: footer.trim(), dueDays, autoSendOnRenewal, attachInvoicePdf: attachInvoicePdf === true };
   }
 
   // Upsert — update if exists, insert if not
