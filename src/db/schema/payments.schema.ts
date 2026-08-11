@@ -75,6 +75,8 @@ export const invoices = pgTable('invoices', {
   subtotal: numeric('subtotal', { precision: 12, scale: 2 }).notNull(),
   gstAmount: numeric('gst_amount', { precision: 12, scale: 2 }).notNull().default('0'),
   gstPercent: numeric('gst_percent', { precision: 5, scale: 2 }).notNull().default('18'),
+  // Snapshot the pricing mode so an invoice remains accurate if tax settings change later.
+  taxIncluded: boolean('tax_included').notNull().default(false),
   totalAmount: numeric('total_amount', { precision: 12, scale: 2 }).notNull(),
   status: invoiceStatusEnum('status').notNull().default('DRAFT'),
   dueDate: timestamp('due_date', { withTimezone: true }),

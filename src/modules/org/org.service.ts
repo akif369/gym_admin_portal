@@ -131,6 +131,22 @@ export type InvoiceSettings = {
   autoSendOnRenewal: boolean;
 };
 
+export type TaxSettings = {
+  taxRate: number;
+  taxIncluded: boolean;
+};
+
+export async function getTaxSettingsService(orgId: string): Promise<TaxSettings> {
+  const allSettings = await getSettingsService(orgId);
+  const value = allSettings['tax'];
+  const tax = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {};
+  const taxRate = typeof tax.taxRate === 'number' && Number.isFinite(tax.taxRate) && tax.taxRate >= 0 && tax.taxRate <= 100
+    ? tax.taxRate
+    : 18;
+
+  return { taxRate, taxIncluded: tax.taxIncluded !== false };
+}
+
 export async function getInvoiceSettingsService(orgId: string): Promise<InvoiceSettings> {
   const allSettings = await getSettingsService(orgId);
   const value = allSettings['invoice'];

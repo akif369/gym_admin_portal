@@ -12,7 +12,7 @@ import { createLogger } from '../../common/logger/index';
 import { addDays } from 'date-fns';
 import { randomBytes, randomUUID } from 'crypto';
 import { organizations } from '../../db/schema/org.schema';
-import { getInvoiceSettingsService } from '../org/org.service';
+import { getInvoiceSettingsService, getTaxSettingsService } from '../org/org.service';
 import { config } from '../../config/env';
 import { sendTextMessage } from '../notifications/notifications.service';
 
@@ -28,6 +28,10 @@ async function generateInvoiceNumber(orgId: string, prefix: string): Promise<str
 
 function invoiceViewUrl(token: string) {
   return `${config.publicApiUrl}${config.apiPrefix}/invoices/public/${token}`;
+}
+
+function roundMoney(amount: number): number {
+  return Math.round((amount + Number.EPSILON) * 100) / 100;
 }
 
 // ── List Payments ─────────────────────────────────────────────────────────────
@@ -230,18 +234,34 @@ export async function generateInvoiceService(
   }
 
   const invoiceSettings = await getInvoiceSettingsService(orgId);
+  const taxSettings = await getTaxSettingsService(orgId);
 
   let subtotal = 0;
   let gstTotal = 0;
   const lineItemData = data.lineItems.map((li) => {
-    const lineTotal = li.quantity * li.unitPrice;
-    const gstAmount = (lineTotal * li.gstPercent) / 100;
-    subtotal += lineTotal;
-    gstTotal += gstAmount;
-    return { ...li, totalAmount: String(lineTotal + gstAmount) };
+    if (!Number.isInteger(li.quantity) || li.quantity < 1 || !Number.isFinite(li.unitPrice) || li.unitPrice < 0) {
+      throw AppError.badRequest(ErrorCode.BAD_REQUEST, 'Each invoice line item must have a positive quantity and a valid price');
+    }
+
+    const displayedAmount = roundMoney(li.quantity * li.unitPrice);
+    const taxableAmount = taxSettings.taxIncluded && taxSettings.taxRate > 0
+      ? roundMoney(displayedAmount / (1 + taxSettings.taxRate / 100))
+      : displayedAmount;
+    const gstAmount = taxSettings.taxIncluded
+      ? roundMoney(displayedAmount - taxableAmount)
+      : roundMoney(taxableAmount * taxSettings.taxRate / 100);
+    const totalAmount = taxSettings.taxIncluded ? displayedAmount : roundMoney(taxableAmount + gstAmount);
+
+    subtotal = roundMoney(subtotal + taxableAmount);
+    gstTotal = roundMoney(gstTotal + gstAmount);
+    return {
+      ...li,
+      gstPercent: taxSettings.taxRate,
+      totalAmount: String(totalAmount),
+    };
   });
 
-  const totalAmount = subtotal + gstTotal;
+  const totalAmount = roundMoney(subtotal + gstTotal);
 
   const invoice = await db.transaction(async (tx) => {
     // The advisory lock makes configured invoice numbering safe across API instances.
@@ -256,7 +276,8 @@ export async function generateInvoiceService(
       publicToken: randomBytes(24).toString('base64url'),
       subtotal: String(subtotal),
       gstAmount: String(gstTotal),
-      gstPercent: String(data.lineItems[0]!.gstPercent),
+      gstPercent: String(taxSettings.taxRate),
+      taxIncluded: taxSettings.taxIncluded,
       totalAmount: String(totalAmount),
       status: 'DRAFT',
       notes: data.notes,
