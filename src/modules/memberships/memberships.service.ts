@@ -32,12 +32,15 @@ async function sendRenewalNotification(
   membership: typeof memberMemberships.$inferSelect,
   plan: typeof membershipPlans.$inferSelect,
   actorId: string,
+  invoiceAmount?: number,
 ) {
   const invoice = await generateMembershipInvoiceService(orgId, {
     memberId,
     membershipId: membership.id,
     planName: plan.name,
-    price: plan.price,
+    // Use the final charge entered during renewal (discounts or additional
+    // charges), not the catalogue price of the plan.
+    price: String(invoiceAmount ?? Number(plan.price)),
     gstPercent: plan.gstPercent,
     notes: membership.notes ?? undefined,
   }, actorId);
@@ -297,7 +300,7 @@ export async function activateMembershipService(orgId: string, memberId: string,
 export async function renewMembershipService(
   orgId: string,
   memberId: string,
-  data: { planId?: string; notes?: string; idempotencyKey?: string },
+  data: { planId?: string; notes?: string; invoiceAmount?: number; idempotencyKey?: string },
   actorId: string,
   actorName?: string,
 ) {
@@ -329,6 +332,9 @@ export async function renewMembershipService(
   if (!planId) throw AppError.badRequest(ErrorCode.MEMBERSHIP_NOT_FOUND, 'No active membership or plan specified');
 
   const plan = await getPlanService(orgId, planId);
+  if (data.invoiceAmount !== undefined && (!Number.isFinite(data.invoiceAmount) || data.invoiceAmount <= 0)) {
+    throw AppError.badRequest(ErrorCode.BAD_REQUEST, 'Invoice amount must be greater than zero');
+  }
 
   // New membership starts from expiry of current (or today)
   const newStartDate = current?.endDate
@@ -360,7 +366,7 @@ export async function renewMembershipService(
   await emitEvent(membership!.id, memberId, 'RENEWED', actorId, actorName, data.notes, { plan: { name: plan.name } });
   await auditLog({ organizationId: orgId, actorId, action: AuditAction.MEMBERSHIP_RENEWED, entityType: 'membership', entityId: membership!.id });
   try {
-    await sendRenewalNotification(orgId, memberId, membership!, plan, actorId);
+    await sendRenewalNotification(orgId, memberId, membership!, plan, actorId, data.invoiceAmount);
   } catch (error) {
     // A provider outage must not undo a completed membership renewal.
     log.error({ err: error, memberId, membershipId: membership!.id }, 'Renewal notification workflow failed');
