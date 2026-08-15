@@ -36,19 +36,19 @@ export async function getDashboardService(orgId: string) {
   const revenueSince = new Date(now.getFullYear(), now.getMonth() - 5, 1);
 
   const [
-    [{ currentlyInside }],
-    [{ todaysCheckins }],
-    [{ todaysRevenue }],
-    [{ monthRevenue }],
-    [{ pendingAmount }],
-    [{ activeMembers }],
-    [{ inactiveMembers }],
-    [{ expiredMemberships }],
-    [{ newMembersMonth }],
-    [{ trainersWorking }],
-    [{ totalTrainers }],
-    [{ todaysPtSessions }],
-    [{ newLeads }],
+    currentlyInsideRes,
+    todaysCheckinsRes,
+    todaysRevenueRes,
+    monthRevenueRes,
+    pendingAmountRes,
+    activeMembersRes,
+    inactiveMembersRes,
+    expiredMembershipsRes,
+    newMembersMonthRes,
+    trainersWorkingRes,
+    totalTrainersRes,
+    todaysPtSessionsRes,
+    newLeadsRes,
     attendanceRows,
     revenueRows,
     peakRows,
@@ -83,6 +83,20 @@ export async function getDashboardService(orgId: string) {
     db.select({ id: paymentTransactions.id, memberId: paymentTransactions.memberId, memberName: paymentTransactions.memberName, amount: paymentTransactions.totalAmount, paymentMethod: paymentTransactions.paymentMethod, status: paymentTransactions.status, createdAt: paymentTransactions.createdAt, referenceId: paymentTransactions.referenceId, description: paymentTransactions.description }).from(paymentTransactions).where(eq(paymentTransactions.organizationId, orgId)).orderBy(desc(paymentTransactions.createdAt)).limit(5),
   ]);
 
+  const currentlyInside = currentlyInsideRes[0]?.currentlyInside ?? 0;
+  const todaysCheckins = todaysCheckinsRes[0]?.todaysCheckins ?? 0;
+  const todaysRevenue = todaysRevenueRes[0]?.todaysRevenue ?? 0;
+  const monthRevenue = monthRevenueRes[0]?.monthRevenue ?? 0;
+  const pendingAmount = pendingAmountRes[0]?.pendingAmount ?? 0;
+  const activeMembers = activeMembersRes[0]?.activeMembers ?? 0;
+  const inactiveMembers = inactiveMembersRes[0]?.inactiveMembers ?? 0;
+  const expiredMemberships = expiredMembershipsRes[0]?.expiredMemberships ?? 0;
+  const newMembersMonth = newMembersMonthRes[0]?.newMembersMonth ?? 0;
+  const trainersWorking = trainersWorkingRes[0]?.trainersWorking ?? 0;
+  const totalTrainers = totalTrainersRes[0]?.totalTrainers ?? 0;
+  const todaysPtSessions = todaysPtSessionsRes[0]?.todaysPtSessions ?? 0;
+  const newLeads = newLeadsRes[0]?.newLeads ?? 0;
+
   const attendanceMap = new Map<string, number>();
   for (let day = 0; day < 7; day += 1) {
     const date = new Date(attendanceSince);
@@ -110,7 +124,7 @@ export async function getDashboardService(orgId: string) {
   peakRows.forEach(row => peakMap.set(row.checkInAt.getHours(), (peakMap.get(row.checkInAt.getHours()) ?? 0) + 1));
   const peakHours = [...peakMap.entries()].sort(([a], [b]) => a - b).map(([hour, count]) => ({ hour: `${String(hour).padStart(2, '0')}:00`, count }));
 
-  const [{ expiringIn7Days }] = await db
+  const expiringIn7DaysRes = await db
     .select({ expiringIn7Days: count() })
     .from(memberMemberships)
     .innerJoin(members, eq(memberMemberships.memberId, members.id))
@@ -125,7 +139,7 @@ export async function getDashboardService(orgId: string) {
   return {
     stats: {
       todaysCheckins: Number(todaysCheckins), currentlyInside: Number(currentlyInside), todaysRevenue: asNumber(todaysRevenue), monthRevenue: asNumber(monthRevenue), pendingAmount: asNumber(pendingAmount),
-      expiringIn7Days: Number(expiringIn7Days), expiredMemberships: Number(expiredMemberships), newMembersMonth: Number(newMembersMonth), activeMembers: Number(activeMembers), inactiveMembers: Number(inactiveMembers), trainersWorking: Number(trainersWorking), totalTrainers: Number(totalTrainers), todaysPtSessions: Number(todaysPtSessions), newLeads: Number(newLeads),
+      expiringIn7Days: Number(expiringIn7DaysRes[0]?.expiringIn7Days ?? 0), expiredMemberships: Number(expiredMemberships), newMembersMonth: Number(newMembersMonth), activeMembers: Number(activeMembers), inactiveMembers: Number(inactiveMembers), trainersWorking: Number(trainersWorking), totalTrainers: Number(totalTrainers), todaysPtSessions: Number(todaysPtSessions), newLeads: Number(newLeads),
     },
     revenueChart, attendanceChart, peakHours,
     recentLogs: recentLogs.map(log => ({ ...log, date: log.checkInAt.toISOString().slice(0, 10), checkIn: log.checkInAt.toISOString().slice(11, 16), checkOut: log.checkOutAt?.toISOString().slice(11, 16) ?? null, method: log.checkInMethod })),

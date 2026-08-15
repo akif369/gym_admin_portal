@@ -1,6 +1,6 @@
 import { db } from '../../db/index';
 import { exercises, workoutTemplates, workoutTemplateExercises, workoutAssignments } from '../../db/schema/workouts.schema';
-import { eq, and, ilike, count, desc } from 'drizzle-orm';
+import { eq, and, ilike, count } from 'drizzle-orm';
 import { AppError, ErrorCode } from '../../common/errors/AppError';
 import { parsePagination, paginationToLimitOffset, buildPaginatedResponse } from '../../common/pagination/paginate';
 import { createLogger } from '../../common/logger/index';
@@ -15,9 +15,10 @@ export async function listExercisesService(orgId: string, query: Record<string, 
   if (query['muscleGroup']) conditions.push(ilike(exercises.muscleGroup, `%${query['muscleGroup']}%`));
   if (query['active'] !== undefined) conditions.push(eq(exercises.isActive, query['active'] === 'true'));
   const whereClause = and(...conditions);
-  const [{ total }] = await db.select({ total: count() }).from(exercises).where(whereClause);
+  const res = await db.select({ total: count() }).from(exercises).where(whereClause);
+  const total = res[0]?.total ?? 0;
   const items = await db.select().from(exercises).where(whereClause).orderBy(exercises.name).limit(limit).offset(offset);
-  return buildPaginatedResponse(items, total ?? 0, { page, pageSize });
+  return buildPaginatedResponse(items, total, { page, pageSize });
 }
 
 export async function createExerciseService(orgId: string, data: any, actorId: string) {
@@ -47,9 +48,10 @@ export async function updateExerciseStatusService(orgId: string, exerciseId: str
 export async function listWorkoutTemplatesService(orgId: string, query: Record<string, unknown>) {
   const { page, pageSize } = parsePagination(query);
   const { limit, offset } = paginationToLimitOffset({ page, pageSize });
-  const [{ total }] = await db.select({ total: count() }).from(workoutTemplates).where(eq(workoutTemplates.organizationId, orgId));
+  const res = await db.select({ total: count() }).from(workoutTemplates).where(eq(workoutTemplates.organizationId, orgId));
+  const total = res[0]?.total ?? 0;
   const items = await db.select().from(workoutTemplates).where(eq(workoutTemplates.organizationId, orgId)).orderBy(workoutTemplates.name).limit(limit).offset(offset);
-  return buildPaginatedResponse(items, total ?? 0, { page, pageSize });
+  return buildPaginatedResponse(items, total, { page, pageSize });
 }
 
 export async function createWorkoutTemplateService(orgId: string, data: any, actorId: string) {
@@ -72,7 +74,7 @@ export async function getWorkoutTemplateService(orgId: string, templateId: strin
 
 export async function updateWorkoutTemplateService(orgId: string, templateId: string, data: any) {
   await getWorkoutTemplateService(orgId, templateId);
-  const { exercises: exerciseList, ...templateData } = data;
+  const { exercises: _exerciseList, ...templateData } = data;
   const [updated] = await db.update(workoutTemplates).set({ ...templateData, updatedAt: new Date() }).where(eq(workoutTemplates.id, templateId)).returning();
   return updated;
 }

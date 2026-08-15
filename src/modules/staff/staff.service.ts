@@ -36,10 +36,11 @@ export async function listStaffService(orgId: string, query: Record<string, unkn
 
   const whereClause = and(...conditions);
 
-  const [{ total }] = await db
+  const totalRes = await db
     .select({ total: count() })
     .from(users)
     .where(whereClause);
+  const total = totalRes[0]?.total ?? 0;
 
   const items = await db
     .select({
@@ -267,10 +268,11 @@ export async function getAuditLogsService(orgId: string, query: Record<string, u
   const { page, pageSize } = parsePagination(query);
   const { limit, offset } = paginationToLimitOffset({ page, pageSize });
 
-  const [{ total }] = await db
+  const totalRes = await db
     .select({ total: count() })
     .from(staffAuditLogs)
     .where(eq(staffAuditLogs.organizationId, orgId));
+  const total = totalRes[0]?.total ?? 0;
 
   const items = await db
     .select()

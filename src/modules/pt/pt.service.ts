@@ -38,7 +38,8 @@ export async function listSessionsService(orgId: string, query: Record<string, u
     conditions.push(lte(ptSessions.scheduledAt, new Date(`${date}T23:59:59Z`)));
   }
   const whereClause = and(...conditions);
-  const [{ total }] = await db.select({ total: count() }).from(ptSessions).where(whereClause);
+  const totalRes = await db.select({ total: count() }).from(ptSessions).where(whereClause);
+  const total = totalRes[0]?.total ?? 0;
   const items = await db.select().from(ptSessions).where(whereClause).orderBy(desc(ptSessions.scheduledAt)).limit(limit).offset(offset);
   return buildPaginatedResponse(items, total ?? 0, { page, pageSize });
 }

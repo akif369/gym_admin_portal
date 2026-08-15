@@ -237,11 +237,12 @@ export async function listMembershipEventsService(orgId: string, query: Record<s
   const { limit, offset } = paginationToLimitOffset({ page, pageSize });
 
   // Join membership events with member data for names
-  const [{ total }] = await db
+  const totalRes = await db
     .select({ total: count() })
     .from(membershipEvents)
     .innerJoin(members, eq(members.id, membershipEvents.memberId))
     .where(eq(members.organizationId, orgId));
+  const total = totalRes[0]?.total ?? 0;
 
   const items = await db
     .select({
@@ -314,10 +315,10 @@ export async function createMembershipService(
       endDate: endDate.toISOString().split('T')[0],
       status: 'PENDING',
       ptSessionsTotal: plan.ptSessionsIncluded,
-      notes: data.notes,
-      idempotencyKey: data.idempotencyKey,
-      createdBy: actorId,
-    })
+      ...(data.notes ? { notes: data.notes } : {}),
+      ...(data.idempotencyKey ? { idempotencyKey: data.idempotencyKey } : {}),
+      ...(actorId ? { createdBy: actorId } : {}),
+    } as any)
     .returning();
 
   await emitEvent(membership!.id, memberId, 'CREATED', actorId, actorName, data.notes, { plan: { id: plan.id, name: plan.name, durationDays: plan.durationDays } });
@@ -416,10 +417,10 @@ export async function renewMembershipService(
       endDate: newEndDate.toISOString().split('T')[0],
       status: 'ACTIVE',
       ptSessionsTotal: plan.ptSessionsIncluded,
-      notes: data.notes,
-      idempotencyKey: data.idempotencyKey,
-      createdBy: actorId,
-    })
+      ...(data.notes ? { notes: data.notes } : {}),
+      ...(data.idempotencyKey ? { idempotencyKey: data.idempotencyKey } : {}),
+      ...(actorId ? { createdBy: actorId } : {}),
+    } as any)
     .returning();
 
   // Mark old as expired

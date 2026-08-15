@@ -22,8 +22,11 @@ export async function getAttendanceReportService(orgId: string, query: Record<st
   if (query['dateFrom']) conditions.push(gte(attendanceLogs.checkInAt, new Date(query['dateFrom'] as string)));
   if (query['dateTo']) conditions.push(lte(attendanceLogs.checkInAt, new Date(query['dateTo'] as string)));
 
-  const [{ total }] = await db.select({ total: count() }).from(attendanceLogs).where(and(...conditions));
-  const [{ unique }] = await db.select({ unique: sql<number>`COUNT(DISTINCT member_id)`.as('unique') }).from(attendanceLogs).where(and(...conditions));
+  const totalRes = await db.select({ total: count() }).from(attendanceLogs).where(and(...conditions));
+  const uniqueRes = await db.select({ unique: sql<number>`COUNT(DISTINCT member_id)`.as('unique') }).from(attendanceLogs).where(and(...conditions));
+
+  const total = totalRes[0]?.total;
+  const unique = uniqueRes[0]?.unique;
 
   const topMembers = await db
     .select({ memberName: attendanceLogs.memberName, visits: count() })
@@ -42,7 +45,8 @@ export async function getRevenueReportService(orgId: string, query: Record<strin
   if (query['dateFrom']) conditions.push(gte(paymentTransactions.createdAt, new Date(query['dateFrom'] as string)));
   if (query['dateTo']) conditions.push(lte(paymentTransactions.createdAt, new Date(query['dateTo'] as string)));
 
-  const [{ total }] = await db.select({ total: sum(paymentTransactions.totalAmount) }).from(paymentTransactions).where(and(...conditions));
+  const totalRes = await db.select({ total: sum(paymentTransactions.totalAmount) }).from(paymentTransactions).where(and(...conditions));
+  const total = totalRes[0]?.total;
 
   const byMethod = await db
     .select({ method: paymentTransactions.paymentMethod, total: sum(paymentTransactions.totalAmount), count: count() })
@@ -61,12 +65,18 @@ export async function getRevenueReportService(orgId: string, query: Record<strin
 // ── Membership Report ─────────────────────────────────────────────────────────
 
 export async function getMembershipReportService(orgId: string) {
-  const [{ active }] = await db.select({ active: count() }).from(memberMemberships).where(eq(memberMemberships.status, 'ACTIVE'));
-  const [{ expired }] = await db.select({ expired: count() }).from(memberMemberships).where(eq(memberMemberships.status, 'EXPIRED'));
-  const [{ frozen }] = await db.select({ frozen: count() }).from(memberMemberships).where(eq(memberMemberships.status, 'FROZEN'));
-  const [{ cancelled }] = await db.select({ cancelled: count() }).from(memberMemberships).where(eq(memberMemberships.status, 'CANCELLED'));
-  const [{ totalMembers }] = await db.select({ totalMembers: count() }).from(members).where(eq(members.organizationId, orgId));
-  return { active: active ?? 0, expired: expired ?? 0, frozen: frozen ?? 0, cancelled: cancelled ?? 0, totalMembers: totalMembers ?? 0 };
+  const activeRes = await db.select({ active: count() }).from(memberMemberships).where(eq(memberMemberships.status, 'ACTIVE'));
+  const expiredRes = await db.select({ expired: count() }).from(memberMemberships).where(eq(memberMemberships.status, 'EXPIRED'));
+  const frozenRes = await db.select({ frozen: count() }).from(memberMemberships).where(eq(memberMemberships.status, 'FROZEN'));
+  const cancelledRes = await db.select({ cancelled: count() }).from(memberMemberships).where(eq(memberMemberships.status, 'CANCELLED'));
+  const totalMembersRes = await db.select({ totalMembers: count() }).from(members).where(eq(members.organizationId, orgId));
+  return { 
+    active: activeRes[0]?.active ?? 0, 
+    expired: expiredRes[0]?.expired ?? 0, 
+    frozen: frozenRes[0]?.frozen ?? 0, 
+    cancelled: cancelledRes[0]?.cancelled ?? 0, 
+    totalMembers: totalMembersRes[0]?.totalMembers ?? 0 
+  };
 }
 
 // ── Trainer Performance Report ────────────────────────────────────────────────
@@ -75,8 +85,10 @@ export async function getTrainerPerformanceReportService(orgId: string) {
   const trainerList = await db.select().from(trainers).where(eq(trainers.organizationId, orgId));
   const results = [];
   for (const trainer of trainerList) {
-    const [{ sessions }] = await db.select({ sessions: count() }).from(ptSessions).where(eq(ptSessions.trainerId, trainer.id));
-    const [{ completed }] = await db.select({ completed: count() }).from(ptSessions).where(and(eq(ptSessions.trainerId, trainer.id), eq(ptSessions.status, 'COMPLETED')));
+    const sessionsRes = await db.select({ sessions: count() }).from(ptSessions).where(eq(ptSessions.trainerId, trainer.id));
+    const completedRes = await db.select({ completed: count() }).from(ptSessions).where(and(eq(ptSessions.trainerId, trainer.id), eq(ptSessions.status, 'COMPLETED')));
+    const sessions = sessionsRes[0]?.sessions ?? 0;
+    const completed = completedRes[0]?.completed ?? 0;
     results.push({
       id: trainer.id, name: trainer.name, specialization: trainer.specialization, status: trainer.status,
       totalSessions: sessions ?? 0, completedSessions: completed ?? 0,
@@ -93,7 +105,8 @@ export async function getPtSessionsReportService(orgId: string, query: Record<st
   if (query['dateFrom']) conditions.push(gte(ptSessions.scheduledAt, new Date(query['dateFrom'] as string)));
   if (query['dateTo']) conditions.push(lte(ptSessions.scheduledAt, new Date(query['dateTo'] as string)));
 
-  const [{ total }] = await db.select({ total: count() }).from(ptSessions).where(and(...conditions));
+  const totalRes = await db.select({ total: count() }).from(ptSessions).where(and(...conditions));
+  const total = totalRes[0]?.total ?? 0;
   const byStatus = await db
     .select({ status: ptSessions.status, count: count() })
     .from(ptSessions).where(and(...conditions))

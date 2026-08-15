@@ -56,11 +56,11 @@ function normalizeIndianMobile(phone: string): string {
 // ── Helper: generate member number ───────────────────────────────────────────
 
 async function generateMemberNumber(orgId: string): Promise<string> {
-  const [{ total }] = await db
+  const totalRes = await db
     .select({ total: count() })
     .from(members)
     .where(eq(members.organizationId, orgId));
-  const nextNum = (total ?? 0) + 1;
+  const nextNum = (totalRes[0]?.total ?? 0) + 1;
   return `GYM${String(nextNum).padStart(4, '0')}`;
 }
 
@@ -107,10 +107,11 @@ export async function listMembersService(orgId: string, query: Record<string, un
 
   const whereClause = and(...conditions);
 
-  const [{ total }] = await db
+  const totalRes = await db
     .select({ total: count() })
     .from(members)
     .where(whereClause);
+  const total = totalRes[0]?.total ?? 0;
 
   const qualifiedColumn = (table: string, column: string) =>
     sql`${sql.identifier(table)}.${sql.identifier(column)}`;

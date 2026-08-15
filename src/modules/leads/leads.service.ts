@@ -17,7 +17,8 @@ export async function listLeadsService(orgId: string, query: Record<string, unkn
   if (query['source']) conditions.push(eq(leads.source, query['source'] as any));
   if (query['search']) conditions.push(or(ilike(leads.name, `%${query['search']}%`), ilike(leads.phone, `%${query['search']}%`)));
   const whereClause = and(...conditions);
-  const [{ total }] = await db.select({ total: count() }).from(leads).where(whereClause);
+  const totalRes = await db.select({ total: count() }).from(leads).where(whereClause);
+  const total = totalRes[0]?.total ?? 0;
   const items = await db.select().from(leads).where(whereClause).orderBy(desc(leads.createdAt)).limit(limit).offset(offset);
   return buildPaginatedResponse(items, total ?? 0, { page, pageSize });
 }

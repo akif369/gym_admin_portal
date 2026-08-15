@@ -2,7 +2,7 @@ import { db } from '../../db/index';
 import { trainers, trainerAssignments } from '../../db/schema/trainers.schema';
 import { members } from '../../db/schema/members.schema';
 import { ptSessions } from '../../db/schema/pt.schema';
-import { eq, and, isNull, desc, count, ilike, or } from 'drizzle-orm';
+import { eq, and, isNull, count, ilike, or } from 'drizzle-orm';
 import { AppError, ErrorCode } from '../../common/errors/AppError';
 import { parsePagination, paginationToLimitOffset, buildPaginatedResponse } from '../../common/pagination/paginate';
 import { createLogger } from '../../common/logger/index';
@@ -16,9 +16,10 @@ export async function listTrainersService(orgId: string, query: Record<string, u
   const conditions: any[] = [eq(trainers.organizationId, orgId), isNull(trainers.deletedAt)];
   if (search) conditions.push(or(ilike(trainers.name, `%${search}%`), ilike(trainers.specialization!, `%${search}%`)));
   const whereClause = and(...conditions);
-  const [{ total }] = await db.select({ total: count() }).from(trainers).where(whereClause);
+  const res = await db.select({ total: count() }).from(trainers).where(whereClause);
+  const total = res[0]?.total ?? 0;
   const items = await db.select().from(trainers).where(whereClause).orderBy(trainers.name).limit(limit).offset(offset);
-  return buildPaginatedResponse(items, total ?? 0, { page, pageSize });
+  return buildPaginatedResponse(items, total, { page, pageSize });
 }
 
 export async function createTrainerService(orgId: string, data: any) {
@@ -71,7 +72,7 @@ export async function assignMembersService(orgId: string, trainerId: string, mem
   return inserted;
 }
 
-export async function removeTrainerMemberService(orgId: string, trainerId: string, memberId: string, actorId: string) {
+export async function removeTrainerMemberService(orgId: string, trainerId: string, memberId: string, _actorId: string) {
   await getTrainerService(orgId, trainerId);
   await db.update(trainerAssignments)
     .set({ unassignedAt: new Date() })
@@ -80,22 +81,28 @@ export async function removeTrainerMemberService(orgId: string, trainerId: strin
 
 export async function getTrainerPerformanceService(orgId: string, trainerId: string) {
   const trainer = await getTrainerService(orgId, trainerId);
-  const [{ memberCount }] = await db
+  const mRes = await db
     .select({ memberCount: count() }).from(trainerAssignments)
     .where(and(eq(trainerAssignments.trainerId, trainerId), isNull(trainerAssignments.unassignedAt)));
-  const [{ totalSessions }] = await db
+  const memberCount = mRes[0]?.memberCount ?? 0;
+  
+  const tRes = await db
     .select({ totalSessions: count() }).from(ptSessions)
     .where(eq(ptSessions.trainerId, trainerId));
-  const [{ completedSessions }] = await db
+  const totalSessions = tRes[0]?.totalSessions ?? 0;
+
+  const cRes = await db
     .select({ completedSessions: count() }).from(ptSessions)
     .where(and(eq(ptSessions.trainerId, trainerId), eq(ptSessions.status, 'COMPLETED')));
+  const completedSessions = cRes[0]?.completedSessions ?? 0;
+
   return {
     trainer,
     stats: {
-      membersAssigned: memberCount ?? 0,
-      totalSessions: totalSessions ?? 0,
-      completedSessions: completedSessions ?? 0,
-      completionRate: (totalSessions ?? 0) > 0 ? Math.round(((completedSessions ?? 0) / (totalSessions ?? 0)) * 100) : 0,
+      membersAssigned: memberCount,
+      totalSessions: totalSessions,
+      completedSessions: completedSessions,
+      completionRate: totalSessions > 0 ? Math.round((completedSessions / totalSessions) * 100) : 0,
     },
   };
 }

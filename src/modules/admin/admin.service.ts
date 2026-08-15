@@ -130,6 +130,7 @@ export async function createOrganization(payload: any) {
       currency: 'INR',
       timezone: 'Asia/Kolkata',
     }).returning();
+    if (!newOrg) throw new Error('Failed to create organization');
 
     // 2. Create Main Branch
     const [newBranch] = await tx.insert(branches).values({
@@ -138,6 +139,7 @@ export async function createOrganization(payload: any) {
       city,
       isMainBranch: true,
     }).returning();
+    if (!newBranch) throw new Error('Failed to create branch');
 
     // 3. Create Owner User
     const hashedPassword = await argon2.hash(ownerPassword);
@@ -150,6 +152,7 @@ export async function createOrganization(payload: any) {
       firstName: ownerFirstName,
       lastName: ownerLastName,
     }).returning();
+    if (!newOwner) throw new Error('Failed to create owner');
 
     return {
       organization: newOrg,

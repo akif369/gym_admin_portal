@@ -23,7 +23,8 @@ const log = createLogger('payments-service');
 // ── Invoice number generator ──────────────────────────────────────────────────
 
 async function generateInvoiceNumber(orgId: string, prefix: string): Promise<string> {
-  const [{ total }] = await db.select({ total: count() }).from(invoices).where(eq(invoices.organizationId, orgId));
+  const totalRes = await db.select({ total: count() }).from(invoices).where(eq(invoices.organizationId, orgId));
+  const total = totalRes[0]?.total ?? 0;
   const year = new Date().getFullYear();
   return `${prefix}-${year}-${String((total ?? 0) + 1).padStart(4, '0')}`;
 }
@@ -79,7 +80,8 @@ export async function listPaymentsService(orgId: string, query: Record<string, u
 
   const whereClause = and(...conditions);
 
-  const [{ total }] = await db.select({ total: count() }).from(paymentTransactions).where(whereClause);
+  const totalRes = await db.select({ total: count() }).from(paymentTransactions).where(whereClause);
+  const total = totalRes[0]?.total ?? 0;
   const items = await db.select().from(paymentTransactions).where(whereClause)
     .orderBy(desc(paymentTransactions.createdAt)).limit(limit).offset(offset);
 
@@ -232,7 +234,8 @@ export async function listInvoicesService(orgId: string, query: Record<string, u
   const { page, pageSize } = parsePagination(query);
   const { limit, offset } = paginationToLimitOffset({ page, pageSize });
 
-  const [{ total }] = await db.select({ total: count() }).from(invoices).where(eq(invoices.organizationId, orgId));
+  const totalRes = await db.select({ total: count() }).from(invoices).where(eq(invoices.organizationId, orgId));
+  const total = totalRes[0]?.total ?? 0;
   const items = await db.select().from(invoices).where(eq(invoices.organizationId, orgId))
     .orderBy(desc(invoices.createdAt)).limit(limit).offset(offset);
 
@@ -471,7 +474,8 @@ export async function getMemberPaymentsService(orgId: string, memberId: string, 
   const { page, pageSize } = parsePagination(query);
   const { limit, offset } = paginationToLimitOffset({ page, pageSize });
 
-  const [{ total }] = await db.select({ total: count() }).from(paymentTransactions).where(eq(paymentTransactions.memberId, memberId));
+  const totalRes = await db.select({ total: count() }).from(paymentTransactions).where(eq(paymentTransactions.memberId, memberId));
+  const total = totalRes[0]?.total ?? 0;
   const items = await db.select().from(paymentTransactions).where(eq(paymentTransactions.memberId, memberId))
     .orderBy(desc(paymentTransactions.createdAt)).limit(limit).offset(offset);
 

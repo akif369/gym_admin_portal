@@ -210,7 +210,8 @@ export async function listAttendanceService(orgId: string, query: Record<string,
 
   const whereClause = and(...conditions);
 
-  const [{ total }] = await db.select({ total: count() }).from(attendanceLogs).where(whereClause);
+  const totalRes = await db.select({ total: count() }).from(attendanceLogs).where(whereClause);
+  const total = totalRes[0]?.total ?? 0;
 
   const items = await db
     .select()
@@ -234,10 +235,11 @@ export async function getMemberAttendanceService(orgId: string, memberId: string
   const { page, pageSize } = parsePagination(query);
   const { limit, offset } = paginationToLimitOffset({ page, pageSize });
 
-  const [{ total }] = await db
+  const totalRes = await db
     .select({ total: count() })
     .from(attendanceLogs)
     .where(and(eq(attendanceLogs.memberId, memberId), eq(attendanceLogs.organizationId, orgId)));
+  const total = totalRes[0]?.total ?? 0;
 
   const items = await db
     .select()
