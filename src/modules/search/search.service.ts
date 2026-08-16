@@ -31,7 +31,13 @@ export async function globalSearchService(
         firstName: members.firstName,
         lastName: members.lastName,
         phone: members.phone,
-        status: members.status,
+        status: sql<string>`COALESCE((
+          SELECT status::text
+          FROM member_memberships
+          WHERE member_memberships.member_id = members.id
+          ORDER BY created_at DESC
+          LIMIT 1
+        ), members.status::text)`,
       })
         .from(members)
         .where(and(
