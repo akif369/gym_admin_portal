@@ -150,7 +150,7 @@ export async function loginService(
     deviceInfo: meta.userAgent,
     ipAddress: meta.ipAddress,
     userAgent: meta.userAgent,
-    expiresAt: addDays(new Date(), 7),
+    expiresAt: addDays(new Date(), 365), // 1 year — sliding window reset on every refresh
     lastUsedAt: new Date(),
   });
 
@@ -263,7 +263,7 @@ export async function refreshTokenService(
     deviceInfo: meta.userAgent,
     ipAddress: meta.ipAddress,
     userAgent: meta.userAgent,
-    expiresAt: addDays(new Date(), 7),
+    expiresAt: addDays(new Date(), 365), // Sliding: reset to 1 year from now on every use
     lastUsedAt: new Date(),
   });
 

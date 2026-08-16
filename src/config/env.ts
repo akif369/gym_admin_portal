@@ -80,9 +80,9 @@ export const config = {
   jwt: {
     accessSecret: requireEnv('JWT_ACCESS_SECRET'),
     refreshSecret: requireEnv('JWT_REFRESH_SECRET'),
-    accessExpiresIn: optionalEnv('JWT_ACCESS_EXPIRES_IN', '15m'),
-    refreshExpiresIn: optionalEnv('JWT_REFRESH_EXPIRES_IN', '7d'),
-    refreshExpiresInMs: 7 * 24 * 60 * 60 * 1000, // 7 days in ms
+    accessExpiresIn: optionalEnv('JWT_ACCESS_EXPIRES_IN', '1d'),    // 1 day — long-lived for usability
+    refreshExpiresIn: optionalEnv('JWT_REFRESH_EXPIRES_IN', '365d'), // 1 year — sliding expiry
+    refreshExpiresInMs: 365 * 24 * 60 * 60 * 1000, // 365 days in ms
   },
 
   // ── SUPER ADMIN ──────────────────────────────────────────────
