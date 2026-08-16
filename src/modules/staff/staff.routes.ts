@@ -36,7 +36,15 @@ export async function staffRoutes(fastify: FastifyInstance): Promise<void> {
   }, staffController.getOne);
 
   fastify.patch('/:staffId', {
-    preHandler: [requireAuth, requirePermission('staff.manage')],
+    preHandler: [
+      requireAuth,
+      async (request, reply) => {
+        const { staffId } = request.params as { staffId: string };
+        // Allow users to edit their own profile without 'staff.manage' permission
+        if (request.user.userId === staffId) return;
+        return requirePermission('staff.manage')(request, reply);
+      },
+    ],
     schema: { tags: ['Staff'], summary: 'Update staff profile' },
   }, staffController.update);
 
