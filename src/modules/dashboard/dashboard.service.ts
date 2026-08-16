@@ -7,17 +7,17 @@ import { memberMemberships } from '../../db/schema/memberships.schema';
 import { paymentTransactions } from '../../db/schema/payments.schema';
 import { ptSessions } from '../../db/schema/pt.schema';
 import { trainers } from '../../db/schema/trainers.schema';
+import { toISTDateString, istDayStart, istMonthStart } from '../../common/utils/timezone';
 
 const asNumber = (value: string | number | null | undefined) => Number(value ?? 0);
 
+/** Returns midnight of the given date in Asia/Kolkata, expressed as a UTC Date. */
 function dayStart(date = new Date()) {
-  const result = new Date(date);
-  result.setHours(0, 0, 0, 0);
-  return result;
+  return istDayStart(toISTDateString(date));
 }
 
 function monthStart(date = new Date()) {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
+  return istMonthStart(date);
 }
 
 export async function getDashboardService(orgId: string) {
@@ -28,9 +28,9 @@ export async function getDashboardService(orgId: string) {
   const thisMonth = monthStart(now);
   const sevenDaysFromNow = new Date(today);
   sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
-  const todayDate = today.toISOString().slice(0, 10);
+  const todayDate = toISTDateString(today);
   const thisMonthDate = `${todayDate.slice(0, 8)}01`;
-  const expiryDate = sevenDaysFromNow.toISOString().slice(0, 10);
+  const expiryDate = toISTDateString(sevenDaysFromNow);
   const attendanceSince = new Date(today);
   attendanceSince.setDate(attendanceSince.getDate() - 6);
   const revenueSince = new Date(now.getFullYear(), now.getMonth() - 5, 1);
@@ -101,13 +101,13 @@ export async function getDashboardService(orgId: string) {
   for (let day = 0; day < 7; day += 1) {
     const date = new Date(attendanceSince);
     date.setDate(date.getDate() + day);
-    attendanceMap.set(date.toISOString().slice(0, 10), 0);
+    attendanceMap.set(toISTDateString(date), 0);
   }
   attendanceRows.forEach(row => {
-    const key = row.checkInAt.toISOString().slice(0, 10);
+    const key = toISTDateString(row.checkInAt);
     if (attendanceMap.has(key)) attendanceMap.set(key, (attendanceMap.get(key) ?? 0) + 1);
   });
-  const attendanceChart = [...attendanceMap.entries()].map(([date, count]) => ({ day: new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' }), count }));
+  const attendanceChart = [...attendanceMap.entries()].map(([date, count]) => ({ day: new Date(`${date}T00:00:00+05:30`).toLocaleDateString('en-US', { weekday: 'short' }), count }));
 
   const revenueMap = new Map<string, number>();
   for (let month = 0; month < 6; month += 1) {
@@ -115,13 +115,17 @@ export async function getDashboardService(orgId: string) {
     revenueMap.set(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`, 0);
   }
   revenueRows.forEach(row => {
-    const key = `${row.createdAt.getFullYear()}-${String(row.createdAt.getMonth() + 1).padStart(2, '0')}`;
+    const key = toISTDateString(row.createdAt).slice(0, 7); // YYYY-MM in IST
     revenueMap.set(key, (revenueMap.get(key) ?? 0) + asNumber(row.totalAmount));
   });
-  const revenueChart = [...revenueMap.entries()].map(([month, revenue]) => ({ month: new Date(`${month}-01T00:00:00`).toLocaleDateString('en-US', { month: 'short' }), revenue }));
+  const revenueChart = [...revenueMap.entries()].map(([month, revenue]) => ({ month: new Date(`${month}-01T00:00:00+05:30`).toLocaleDateString('en-US', { month: 'short' }), revenue }));
 
   const peakMap = new Map<number, number>();
-  peakRows.forEach(row => peakMap.set(row.checkInAt.getHours(), (peakMap.get(row.checkInAt.getHours()) ?? 0) + 1));
+  peakRows.forEach(row => {
+    // Get the IST hour for peak analysis
+    const istHour = Number(row.checkInAt.toLocaleString('en-US', { timeZone: 'Asia/Kolkata', hour: 'numeric', hour12: false })) % 24;
+    peakMap.set(istHour, (peakMap.get(istHour) ?? 0) + 1);
+  });
   const peakHours = [...peakMap.entries()].sort(([a], [b]) => a - b).map(([hour, count]) => ({ hour: `${String(hour).padStart(2, '0')}:00`, count }));
 
   const expiringIn7DaysRes = await db
@@ -142,7 +146,7 @@ export async function getDashboardService(orgId: string) {
       expiringIn7Days: Number(expiringIn7DaysRes[0]?.expiringIn7Days ?? 0), expiredMemberships: Number(expiredMemberships), newMembersMonth: Number(newMembersMonth), activeMembers: Number(activeMembers), inactiveMembers: Number(inactiveMembers), trainersWorking: Number(trainersWorking), totalTrainers: Number(totalTrainers), todaysPtSessions: Number(todaysPtSessions), newLeads: Number(newLeads),
     },
     revenueChart, attendanceChart, peakHours,
-    recentLogs: recentLogs.map(log => ({ ...log, date: log.checkInAt.toISOString().slice(0, 10), checkIn: log.checkInAt.toISOString().slice(11, 16), checkOut: log.checkOutAt?.toISOString().slice(11, 16) ?? null, method: log.checkInMethod })),
-    recentPayments: recentPayments.map(payment => ({ ...payment, amount: asNumber(payment.amount), date: payment.createdAt.toISOString().slice(0, 10), method: payment.paymentMethod, refId: payment.referenceId ?? '', plan: payment.description ?? '' })),
+    recentLogs: recentLogs.map(log => ({ ...log, date: toISTDateString(log.checkInAt), checkIn: log.checkInAt.toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }), checkOut: log.checkOutAt ? log.checkOutAt.toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }) : null, method: log.checkInMethod })),
+    recentPayments: recentPayments.map(payment => ({ ...payment, amount: asNumber(payment.amount), date: toISTDateString(payment.createdAt), method: payment.paymentMethod, refId: payment.referenceId ?? '', plan: payment.description ?? '' })),
   };
 }

@@ -10,6 +10,7 @@ import { auditLog } from '../../common/audit/auditLog';
 import { AuditAction } from '../../db/schema/audit.schema';
 import { createLogger } from '../../common/logger/index';
 import { isStrictPaymentPolicyEnabled } from '../org/org.service';
+import { istDayStart, istDayEnd } from '../../common/utils/timezone';
 
 const log = createLogger('attendance-service');
 
@@ -199,9 +200,8 @@ export async function listAttendanceService(orgId: string, query: Record<string,
 
   if (query['date']) {
     const date = query['date'] as string;
-    const start = new Date(`${date}T00:00:00.000Z`);
-    const end = new Date(`${date}T23:59:59.999Z`);
-    conditions.push(gte(attendanceLogs.checkInAt, start), lte(attendanceLogs.checkInAt, end));
+    // Convert IST calendar day boundaries to UTC for the DB query
+    conditions.push(gte(attendanceLogs.checkInAt, istDayStart(date)), lte(attendanceLogs.checkInAt, istDayEnd(date)));
   }
 
   if (query['memberId']) {
@@ -324,13 +324,13 @@ export async function getDailyAttendanceService(orgId: string, days: number = 30
 
   const rows = await db
     .select({
-      date: sql<string>`DATE(check_in_at AT TIME ZONE 'UTC')`.as('date'),
+      date: sql<string>`DATE(check_in_at AT TIME ZONE 'Asia/Kolkata')`.as('date'),
       count: count(),
     })
     .from(attendanceLogs)
     .where(and(eq(attendanceLogs.organizationId, orgId), gte(attendanceLogs.checkInAt, since)))
-    .groupBy(sql`DATE(check_in_at AT TIME ZONE 'UTC')`)
-    .orderBy(sql`DATE(check_in_at AT TIME ZONE 'UTC')`);
+    .groupBy(sql`DATE(check_in_at AT TIME ZONE 'Asia/Kolkata')`)
+    .orderBy(sql`DATE(check_in_at AT TIME ZONE 'Asia/Kolkata')`);
 
   return rows;
 }

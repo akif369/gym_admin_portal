@@ -15,7 +15,7 @@ FROM node:22-bookworm-slim AS production
 WORKDIR /app
 
 ENV NODE_ENV=production \
-    TZ="Asia/Kolkata" \
+    TZ=Asia/Kolkata \
     PUPPETEER_SKIP_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
@@ -33,4 +33,4 @@ USER node
 
 EXPOSE 5000
 
-CMD ["npm", "start"]
+CMD ["npm", "run","prod"]
