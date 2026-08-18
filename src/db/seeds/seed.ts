@@ -162,6 +162,48 @@ async function seed() {
     status: 'ACTIVE',
   });
 
+  // Branch Owner
+  const boHash = await hashPw('Owner@123');
+  await db.insert(users).values({
+    organizationId: org!.id,
+    branchId: branch!.id,
+    email: 'kora.owner@ironzone.com',
+    passwordHash: boHash,
+    role: 'BRANCH_OWNER',
+    firstName: 'Koramangala',
+    lastName: 'Owner',
+    phone: '9900112255',
+    status: 'ACTIVE',
+  });
+
+  // Sales Staff
+  const salesHash = await hashPw('Sales@123');
+  await db.insert(users).values({
+    organizationId: org!.id,
+    branchId: branch!.id,
+    email: 'sales@ironzone.com',
+    passwordHash: salesHash,
+    role: 'SALES_STAFF',
+    firstName: 'Neha',
+    lastName: 'Sales',
+    phone: '9900112266',
+    status: 'ACTIVE',
+  });
+
+  // Accountant
+  const accHash = await hashPw('Accountant@123');
+  await db.insert(users).values({
+    organizationId: org!.id,
+    branchId: branch!.id,
+    email: 'accounts@ironzone.com',
+    passwordHash: accHash,
+    role: 'ACCOUNTANT',
+    firstName: 'Raj',
+    lastName: 'Finance',
+    phone: '9900112277',
+    status: 'ACTIVE',
+  });
+
   // ── 6. Membership Plans ────────────────────────────────────────────────────
   log.info('Seeding membership plans...');
   const [plan1] = await db.insert(membershipPlans).values({ organizationId: org!.id, name: 'Monthly Basic', durationDays: 30, price: '1500', gstPercent: '18', joiningFee: '500', ptSessionsIncluded: 0, status: 'ACTIVE' }).returning();
@@ -176,6 +218,9 @@ async function seed() {
   const [trainer2] = await db.insert(trainers).values({ organizationId: org!.id, branchId: branch!.id, name: 'Neha Gupta', phone: '9988776644', specialization: 'Yoga & Flexibility', certifications: 'RYT 500, ACE', shift: 'Evening (2PM - 10PM)', status: 'ACTIVE', joiningDate: '2023-01-15' }).returning();
   const [trainer3] = await db.insert(trainers).values({ organizationId: org!.id, branchId: branch!.id, name: 'Ravi Kumar', phone: '9988776633', specialization: 'CrossFit & Cardio', certifications: 'NASM CPT, CF-L1', shift: 'Morning (6AM - 2PM)', status: 'ON_LEAVE', joiningDate: '2021-09-01' }).returning();
 
+  const trainerHash = await hashPw('Trainer@123');
+  await db.insert(users).values({ organizationId: org!.id, branchId: branch!.id, email: 'amit.trainer@ironzone.com', passwordHash: trainerHash, role: 'TRAINER', firstName: 'Amit', lastName: 'Singh', phone: '9988776655', status: 'ACTIVE' });
+
   // ── 8. Members ────────────────────────────────────────────────────────────
   log.info('Seeding members...');
   const today = new Date();
@@ -187,6 +232,7 @@ async function seed() {
     { firstName: 'Vikram', lastName: 'Nair', email: 'vikram.n@email.com', phone: '9876543251', gender: 'MALE' as const, dob: '1988-09-30', address: '56, 7th Sector, HSR Layout', goal: 'Endurance', experienceLevel: 'INTERMEDIATE' as const, joinDate: '2025-08-15', emergency: { name: 'Latha Nair', phone: '9876543252', relation: 'Spouse' }, health: { medicalConditions: 'Hypertension', allergies: 'Dust', injuries: 'Shoulder - old' } },
   ];
 
+  const memberHash = await hashPw('Member@123');
   const memberRows = [];
   for (let i = 0; i < memberData.length; i++) {
     const m = memberData[i]!;
@@ -209,6 +255,20 @@ async function seed() {
     memberRows.push(member!);
     await db.insert(memberEmergencyContacts).values({ memberId: member!.id, ...m.emergency });
     await db.insert(memberHealthProfiles).values({ memberId: member!.id, ...m.health });
+
+    // Create user login for the member
+    await db.insert(users).values({
+      organizationId: org!.id,
+      branchId: branch!.id,
+      email: m.email,
+      passwordHash: memberHash,
+      role: 'MEMBER',
+      firstName: m.firstName,
+      lastName: m.lastName,
+      phone: m.phone,
+      status: 'ACTIVE',
+      memberId: member!.id,
+    });
   }
 
   // ── 9. Trainer Assignments ────────────────────────────────────────────────
@@ -303,13 +363,25 @@ async function seed() {
   log.info('✅ Seed completed successfully!');
   log.info('');
   log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  log.info('🔑 Admin credentials:');
+  log.info('🔑 Admin (Org Owner) credentials:');
   log.info('   Email:    admin@ironzone.com');
   log.info('   Password: Admin@123');
+  log.info('');
+  log.info('🏢 Branch Owner credentials:');
+  log.info('   Email:    kora.owner@ironzone.com');
+  log.info('   Password: Owner@123');
   log.info('');
   log.info('👤 Manager credentials:');
   log.info('   Email:    priya.k@ironzone.com');
   log.info('   Password: Manager@123');
+  log.info('');
+  log.info('💪 Trainer credentials:');
+  log.info('   Email:    amit.trainer@ironzone.com');
+  log.info('   Password: Trainer@123');
+  log.info('');
+  log.info('🏃 Member credentials (sample):');
+  log.info('   Email:    rahul.sharma@email.com');
+  log.info('   Password: Member@123');
   log.info('');
   log.info('🌐 API:  http://localhost:3001/api/v1');
   log.info('📚 Docs: http://localhost:3001/docs');

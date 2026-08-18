@@ -9,6 +9,8 @@ import {
   userSessions,
   passwordResetTokens,
   organizations,
+  getPortalType,
+  type UserRoleType,
 } from '../../db/schema/index';
 import { roles, userPermissions, DEFAULT_ROLE_PERMISSIONS } from '../../db/schema/rbac.schema';
 import { eq, and, isNull, gt, lt, inArray } from 'drizzle-orm';
@@ -182,6 +184,8 @@ export async function loginService(
 
   log.info({ userId: user.id, sessionId }, 'Login successful');
 
+  const portalType = getPortalType(user.role as UserRoleType);
+
   return {
     accessToken,
     refreshToken,
@@ -193,7 +197,9 @@ export async function loginService(
       role: user.role,
       orgId: user.organizationId,
       branchId: user.branchId,
+      memberId: user.memberId ?? null,
       permissions,
+      portalType,
     },
   };
 }
@@ -329,6 +335,7 @@ export async function getMeService(userId: string) {
       role: users.role,
       organizationId: users.organizationId,
       branchId: users.branchId,
+      memberId: users.memberId,
       status: users.status,
       lastLoginAt: users.lastLoginAt,
       createdAt: users.createdAt,
@@ -340,8 +347,14 @@ export async function getMeService(userId: string) {
   if (!user) throw AppError.notFound(ErrorCode.STAFF_NOT_FOUND, 'User not found');
 
   const permissions = DEFAULT_ROLE_PERMISSIONS[user.role] ?? [];
+  const portalType = getPortalType(user.role as UserRoleType);
 
-  return { ...user, permissions };
+  return {
+    ...user,
+    orgId: user.organizationId,
+    permissions,
+    portalType,
+  };
 }
 
 // ── List Active Sessions ──────────────────────────────────────────────────────
