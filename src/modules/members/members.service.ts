@@ -73,6 +73,7 @@ export async function listMembersService(orgId: string, query: Record<string, un
   const search = query['search'] as string | undefined;
   const membershipStatus = query['membershipStatus'] as string | undefined;
   const status = query['status'] as string | undefined;
+  const branchId = query['branchId'] as string | undefined;
 
   const conditions: any[] = [
     eq(members.organizationId, orgId),
@@ -93,6 +94,10 @@ export async function listMembersService(orgId: string, query: Record<string, un
 
   if (status) {
     conditions.push(eq(members.status, status as any));
+  }
+
+  if (branchId) {
+    conditions.push(eq(members.branchId, branchId));
   }
 
   if (membershipStatus) {

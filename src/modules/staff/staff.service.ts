@@ -1,6 +1,6 @@
 import * as argon2 from 'argon2';
 import { db } from '../../db/index';
-import { users, userSessions, userPermissions, roles } from '../../db/schema/index';
+import { users, userSessions, userPermissions, roles, staffInviteTokens, passwordResetTokens } from '../../db/schema/index';
 import { staffAuditLogs } from '../../db/schema/audit.schema';
 import { eq, and, isNull, ilike, desc, or, sql, count } from 'drizzle-orm';
 import { AppError, ErrorCode } from '../../common/errors/AppError';
@@ -9,6 +9,9 @@ import { auditLog } from '../../common/audit/auditLog';
 import { AuditAction } from '../../db/schema/audit.schema';
 import { DEFAULT_ROLE_PERMISSIONS } from '../../db/schema/rbac.schema';
 import { createLogger } from '../../common/logger/index';
+import { sendTextMessage } from '../notifications/notifications.service';
+import crypto from 'crypto';
+import { addDays } from 'date-fns';
 
 const log = createLogger('staff-service');
 
@@ -18,6 +21,7 @@ export async function listStaffService(orgId: string, query: Record<string, unkn
   const { page, pageSize } = parsePagination(query);
   const { limit, offset } = paginationToLimitOffset({ page, pageSize });
   const search = query['search'] as string | undefined;
+  const branchId = query['branchId'] as string | undefined;
 
   const conditions = [
     eq(users.organizationId, orgId),
@@ -32,6 +36,10 @@ export async function listStaffService(orgId: string, query: Record<string, unkn
         ilike(users.email, `%${search}%`),
       )!,
     );
+  }
+
+  if (branchId) {
+    conditions.push(eq(users.branchId, branchId));
   }
 
   const whereClause = and(...conditions);
@@ -283,4 +291,127 @@ export async function getAuditLogsService(orgId: string, query: Record<string, u
     .offset(offset);
 
   return buildPaginatedResponse(items, total ?? 0, { page, pageSize });
+}
+
+// ── Invite Staff ──────────────────────────────────────────────────────────────
+
+export async function inviteStaffService(
+  orgId: string,
+  data: { email: string; firstName: string; lastName: string; phone?: string; role: string; branchId?: string },
+  actorId: string,
+) {
+  // Check email uniqueness
+  const [existing] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.email, data.email.toLowerCase()), isNull(users.deletedAt)))
+    .limit(1);
+
+  if (existing) {
+    throw AppError.conflict(ErrorCode.EMAIL_ALREADY_EXISTS, 'A user with this email already exists');
+  }
+
+  // Create user with a dummy password and isInvitePending flag
+  const dummyPasswordHash = await argon2.hash(crypto.randomBytes(32).toString('hex'));
+
+  const [staff] = await db
+    .insert(users)
+    .values({
+      organizationId: orgId,
+      branchId: data.branchId,
+      email: data.email.toLowerCase(),
+      passwordHash: dummyPasswordHash,
+      role: data.role as any,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      phone: data.phone,
+      isInvitePending: true,
+    })
+    .returning({
+      id: users.id,
+      email: users.email,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      phone: users.phone,
+      role: users.role,
+    });
+
+  // Generate invite token
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = await argon2.hash(rawToken);
+
+  await db.insert(staffInviteTokens).values({
+    userId: staff!.id,
+    tokenHash,
+    expiresAt: addDays(new Date(), 7),
+  });
+
+  const inviteLink = `${process.env.PUBLIC_API_URL?.replace('/api/v1', '')}/invite/accept?token=${rawToken}&uid=${staff!.id}`;
+
+  // Log action
+  await auditLog({
+    organizationId: orgId,
+    actorId,
+    action: AuditAction.STAFF_CREATED,
+    entityType: 'staff',
+    entityId: staff!.id,
+    description: `Staff invite sent to ${data.email}`,
+  });
+
+  // Send WhatsApp invite if phone is provided
+  if (data.phone) {
+    await sendTextMessage({
+      organizationId: orgId,
+      eventType: 'WELCOME',
+      phone: data.phone,
+      text: `Welcome to GYMatrix, ${data.firstName}! You have been invited to join the staff portal as a ${data.role}. Please set up your password here: ${inviteLink}`,
+      idempotencyKey: `invite-${staff!.id}-${Date.now()}`,
+    }).catch(err => log.error(err, 'Failed to send WhatsApp invite'));
+  }
+
+  return { staff, inviteLink };
+}
+
+// ── Reset Password (Admin Initiated) ──────────────────────────────────────────
+
+export async function resetStaffPasswordService(orgId: string, staffId: string, actorId: string) {
+  const [staff] = await db
+    .select()
+    .from(users)
+    .where(and(eq(users.id, staffId), eq(users.organizationId, orgId), isNull(users.deletedAt)))
+    .limit(1);
+
+  if (!staff) throw AppError.notFound(ErrorCode.NOT_FOUND, 'Staff member not found');
+
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = await argon2.hash(rawToken);
+
+  await db.insert(passwordResetTokens).values({
+    userId: staff.id,
+    tokenHash,
+    expiresAt: addDays(new Date(), 1),
+  });
+
+  const resetLink = `${process.env.PUBLIC_API_URL?.replace('/api/v1', '')}/reset-password?token=${rawToken}&uid=${staff.id}`;
+
+  await auditLog({
+    organizationId: orgId,
+    actorId,
+    action: AuditAction.PASSWORD_RESET_REQUESTED,
+    entityType: 'staff',
+    entityId: staff.id,
+    description: `Password reset link generated for ${staff.email}`,
+  });
+
+  if (staff.phone) {
+    await sendTextMessage({
+      organizationId: orgId,
+      eventType: 'MANUAL',
+      phone: staff.phone,
+      text: `Hello ${staff.firstName}, a password reset was requested for your GYMatrix account. Reset your password here: ${resetLink}`,
+      idempotencyKey: `reset-${staff.id}-${Date.now()}`,
+    }).catch(err => log.error(err, 'Failed to send WhatsApp reset link'));
+  }
+
+  return { resetLink };
 }

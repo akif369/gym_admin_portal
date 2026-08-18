@@ -22,13 +22,33 @@ export async function staffRoutes(fastify: FastifyInstance): Promise<void> {
           firstName: { type: 'string' },
           lastName: { type: 'string' },
           phone: { type: 'string' },
-          role: { type: 'string', enum: ['OWNER', 'MANAGER', 'RECEPTIONIST', 'TRAINER'] },
+          role: { type: 'string', enum: ['ORGANIZATION_OWNER', 'BRANCH_OWNER', 'BRANCH_MANAGER', 'MANAGER', 'RECEPTIONIST', 'SALES_STAFF', 'ACCOUNTANT', 'TRAINER', 'OWNER'] },
           branchId: { type: 'string', format: 'uuid' },
           password: { type: 'string', minLength: 8 },
         },
       },
     },
   }, staffController.create);
+
+  fastify.post('/invite', {
+    preHandler: [requireAuth, requirePermission('staff.manage')],
+    schema: {
+      tags: ['Staff'],
+      summary: 'Invite a staff member via email and WhatsApp',
+      body: {
+        type: 'object',
+        required: ['email', 'firstName', 'lastName', 'role'],
+        properties: {
+          email: { type: 'string', format: 'email' },
+          firstName: { type: 'string' },
+          lastName: { type: 'string' },
+          phone: { type: 'string' },
+          role: { type: 'string', enum: ['ORGANIZATION_OWNER', 'BRANCH_OWNER', 'BRANCH_MANAGER', 'MANAGER', 'RECEPTIONIST', 'SALES_STAFF', 'ACCOUNTANT', 'TRAINER', 'OWNER'] },
+          branchId: { type: 'string', format: 'uuid' },
+        },
+      },
+    },
+  }, staffController.invite);
 
   fastify.get('/:staffId', {
     preHandler: [requireAuth, requirePermission('staff.view')],
@@ -47,6 +67,14 @@ export async function staffRoutes(fastify: FastifyInstance): Promise<void> {
     ],
     schema: { tags: ['Staff'], summary: 'Update staff profile' },
   }, staffController.update);
+
+  fastify.post('/:staffId/reset-password', {
+    preHandler: [requireAuth, requirePermission('staff.manage')],
+    schema: {
+      tags: ['Staff'],
+      summary: 'Send a password reset link to a staff member via email and WhatsApp',
+    },
+  }, staffController.resetPassword);
 
   fastify.patch('/:staffId/status', {
     preHandler: [requireAuth, requirePermission('staff.manage')],

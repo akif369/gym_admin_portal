@@ -20,7 +20,7 @@ function monthStart(date = new Date()) {
   return istMonthStart(date);
 }
 
-export async function getDashboardService(orgId: string) {
+export async function getDashboardService(orgId: string, branchId?: string) {
   const now = new Date();
   const today = dayStart(now);
   const tomorrow = new Date(today);
@@ -34,6 +34,8 @@ export async function getDashboardService(orgId: string) {
   const attendanceSince = new Date(today);
   attendanceSince.setDate(attendanceSince.getDate() - 6);
   const revenueSince = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+
+  const orgFilter = (table: any) => branchId ? and(eq(table.organizationId, orgId), eq(table.branchId, branchId)) : eq(table.organizationId, orgId);
 
   const [
     currentlyInsideRes,
@@ -55,32 +57,32 @@ export async function getDashboardService(orgId: string) {
     recentLogs,
     recentPayments,
   ] = await Promise.all([
-    db.select({ currentlyInside: count() }).from(attendanceLogs).where(and(eq(attendanceLogs.organizationId, orgId), isNull(attendanceLogs.checkOutAt))),
-    db.select({ todaysCheckins: count() }).from(attendanceLogs).where(and(eq(attendanceLogs.organizationId, orgId), gte(attendanceLogs.checkInAt, today), lte(attendanceLogs.checkInAt, tomorrow))),
-    db.select({ todaysRevenue: sum(paymentTransactions.totalAmount) }).from(paymentTransactions).where(and(eq(paymentTransactions.organizationId, orgId), eq(paymentTransactions.status, 'PAID'), gte(paymentTransactions.createdAt, today), lte(paymentTransactions.createdAt, tomorrow))),
-    db.select({ monthRevenue: sum(paymentTransactions.totalAmount) }).from(paymentTransactions).where(and(eq(paymentTransactions.organizationId, orgId), eq(paymentTransactions.status, 'PAID'), gte(paymentTransactions.createdAt, thisMonth))),
-    db.select({ pendingAmount: sum(paymentTransactions.totalAmount) }).from(paymentTransactions).where(and(eq(paymentTransactions.organizationId, orgId), inArray(paymentTransactions.status, ['PENDING', 'PARTIALLY_PAID']))),
+    db.select({ currentlyInside: count() }).from(attendanceLogs).where(and(orgFilter(attendanceLogs), isNull(attendanceLogs.checkOutAt))),
+    db.select({ todaysCheckins: count() }).from(attendanceLogs).where(and(orgFilter(attendanceLogs), gte(attendanceLogs.checkInAt, today), lte(attendanceLogs.checkInAt, tomorrow))),
+    db.select({ todaysRevenue: sum(paymentTransactions.totalAmount) }).from(paymentTransactions).where(and(orgFilter(paymentTransactions), eq(paymentTransactions.status, 'PAID'), gte(paymentTransactions.createdAt, today), lte(paymentTransactions.createdAt, tomorrow))),
+    db.select({ monthRevenue: sum(paymentTransactions.totalAmount) }).from(paymentTransactions).where(and(orgFilter(paymentTransactions), eq(paymentTransactions.status, 'PAID'), gte(paymentTransactions.createdAt, thisMonth))),
+    db.select({ pendingAmount: sum(paymentTransactions.totalAmount) }).from(paymentTransactions).where(and(orgFilter(paymentTransactions), inArray(paymentTransactions.status, ['PENDING', 'PARTIALLY_PAID']))),
     db.select({ activeMembers: count() }).from(members).where(and(
-      eq(members.organizationId, orgId),
+      orgFilter(members),
       isNull(members.deletedAt),
       sql`(SELECT status FROM member_memberships WHERE member_id = ${members.id} ORDER BY created_at DESC LIMIT 1) = 'ACTIVE'`,
     )),
-    db.select({ inactiveMembers: count() }).from(members).where(and(eq(members.organizationId, orgId), isNull(members.deletedAt), eq(members.status, 'ARCHIVED'))),
+    db.select({ inactiveMembers: count() }).from(members).where(and(orgFilter(members), isNull(members.deletedAt), eq(members.status, 'ARCHIVED'))),
     db.select({ expiredMemberships: count() }).from(members).where(and(
-      eq(members.organizationId, orgId),
+      orgFilter(members),
       isNull(members.deletedAt),
       sql`(SELECT status FROM member_memberships WHERE member_id = ${members.id} ORDER BY created_at DESC LIMIT 1) = 'EXPIRED'`,
     )),
-    db.select({ newMembersMonth: count() }).from(members).where(and(eq(members.organizationId, orgId), isNull(members.deletedAt), gte(members.joinDate, thisMonthDate))),
-    db.select({ trainersWorking: count() }).from(trainers).where(and(eq(trainers.organizationId, orgId), isNull(trainers.deletedAt), eq(trainers.status, 'ACTIVE'))),
-    db.select({ totalTrainers: count() }).from(trainers).where(and(eq(trainers.organizationId, orgId), isNull(trainers.deletedAt))),
-    db.select({ todaysPtSessions: count() }).from(ptSessions).where(and(eq(ptSessions.organizationId, orgId), gte(ptSessions.scheduledAt, today), lte(ptSessions.scheduledAt, tomorrow), eq(ptSessions.status, 'UPCOMING'))),
-    db.select({ newLeads: count() }).from(leads).where(and(eq(leads.organizationId, orgId), isNull(leads.deletedAt), gte(leads.createdAt, thisMonth))),
-    db.select({ checkInAt: attendanceLogs.checkInAt }).from(attendanceLogs).where(and(eq(attendanceLogs.organizationId, orgId), gte(attendanceLogs.checkInAt, attendanceSince))),
-    db.select({ createdAt: paymentTransactions.createdAt, totalAmount: paymentTransactions.totalAmount }).from(paymentTransactions).where(and(eq(paymentTransactions.organizationId, orgId), eq(paymentTransactions.status, 'PAID'), gte(paymentTransactions.createdAt, revenueSince))),
-    db.select({ checkInAt: attendanceLogs.checkInAt }).from(attendanceLogs).where(and(eq(attendanceLogs.organizationId, orgId), gte(attendanceLogs.checkInAt, today), lte(attendanceLogs.checkInAt, tomorrow))),
-    db.select({ id: attendanceLogs.id, memberId: attendanceLogs.memberId, memberName: attendanceLogs.memberName, checkInAt: attendanceLogs.checkInAt, checkOutAt: attendanceLogs.checkOutAt, checkInMethod: attendanceLogs.checkInMethod }).from(attendanceLogs).where(eq(attendanceLogs.organizationId, orgId)).orderBy(desc(attendanceLogs.checkInAt)).limit(6),
-    db.select({ id: paymentTransactions.id, memberId: paymentTransactions.memberId, memberName: paymentTransactions.memberName, amount: paymentTransactions.totalAmount, paymentMethod: paymentTransactions.paymentMethod, status: paymentTransactions.status, createdAt: paymentTransactions.createdAt, referenceId: paymentTransactions.referenceId, description: paymentTransactions.description }).from(paymentTransactions).where(eq(paymentTransactions.organizationId, orgId)).orderBy(desc(paymentTransactions.createdAt)).limit(5),
+    db.select({ newMembersMonth: count() }).from(members).where(and(orgFilter(members), isNull(members.deletedAt), gte(members.joinDate, thisMonthDate))),
+    db.select({ trainersWorking: count() }).from(trainers).where(and(orgFilter(trainers), isNull(trainers.deletedAt), eq(trainers.status, 'ACTIVE'))),
+    db.select({ totalTrainers: count() }).from(trainers).where(and(orgFilter(trainers), isNull(trainers.deletedAt))),
+    db.select({ todaysPtSessions: count() }).from(ptSessions).where(and(orgFilter(ptSessions), gte(ptSessions.scheduledAt, today), lte(ptSessions.scheduledAt, tomorrow), eq(ptSessions.status, 'UPCOMING'))),
+    db.select({ newLeads: count() }).from(leads).where(and(orgFilter(leads), isNull(leads.deletedAt), gte(leads.createdAt, thisMonth))),
+    db.select({ checkInAt: attendanceLogs.checkInAt }).from(attendanceLogs).where(and(orgFilter(attendanceLogs), gte(attendanceLogs.checkInAt, attendanceSince))),
+    db.select({ createdAt: paymentTransactions.createdAt, totalAmount: paymentTransactions.totalAmount }).from(paymentTransactions).where(and(orgFilter(paymentTransactions), eq(paymentTransactions.status, 'PAID'), gte(paymentTransactions.createdAt, revenueSince))),
+    db.select({ checkInAt: attendanceLogs.checkInAt }).from(attendanceLogs).where(and(orgFilter(attendanceLogs), gte(attendanceLogs.checkInAt, today), lte(attendanceLogs.checkInAt, tomorrow))),
+    db.select({ id: attendanceLogs.id, memberId: attendanceLogs.memberId, memberName: attendanceLogs.memberName, checkInAt: attendanceLogs.checkInAt, checkOutAt: attendanceLogs.checkOutAt, checkInMethod: attendanceLogs.checkInMethod }).from(attendanceLogs).where(orgFilter(attendanceLogs)).orderBy(desc(attendanceLogs.checkInAt)).limit(6),
+    db.select({ id: paymentTransactions.id, memberId: paymentTransactions.memberId, memberName: paymentTransactions.memberName, amount: paymentTransactions.totalAmount, paymentMethod: paymentTransactions.paymentMethod, status: paymentTransactions.status, createdAt: paymentTransactions.createdAt, referenceId: paymentTransactions.referenceId, description: paymentTransactions.description }).from(paymentTransactions).where(orgFilter(paymentTransactions)).orderBy(desc(paymentTransactions.createdAt)).limit(5),
   ]);
 
   const currentlyInside = currentlyInsideRes[0]?.currentlyInside ?? 0;
@@ -133,7 +135,7 @@ export async function getDashboardService(orgId: string) {
     .from(memberMemberships)
     .innerJoin(members, eq(memberMemberships.memberId, members.id))
     .where(and(
-      eq(members.organizationId, orgId),
+      orgFilter(members),
       isNull(members.deletedAt),
       eq(memberMemberships.status, 'ACTIVE'),
       gte(memberMemberships.endDate, todayDate),
