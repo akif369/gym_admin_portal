@@ -108,4 +108,9 @@ export async function staffRoutes(fastify: FastifyInstance): Promise<void> {
     preHandler: [requireAuth, requirePermission('staff.manage')],
     schema: { tags: ['Staff'], summary: 'Staff activity audit log' },
   }, staffController.getAuditLogs);
+
+  fastify.delete('/:staffId', {
+    preHandler: [requireAuth, requirePermission('staff.manage')],
+    schema: { tags: ['Staff'], summary: 'Delete staff member' },
+  }, staffController.delete);
 }

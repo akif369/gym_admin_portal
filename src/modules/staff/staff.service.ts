@@ -264,7 +264,44 @@ export async function updateStaffPermissionsService(
   return { userId: staffId, permissions };
 }
 
-// ── Get Roles ─────────────────────────────────────────────────────────────────
+// ── Delete Staff ──────────────────────────────────────────────────────────────
+
+export async function deleteStaffService(
+  orgId: string,
+  staffId: string,
+  actorId: string,
+) {
+  // Check if they are deleting themselves
+  if (staffId === actorId) {
+    throw AppError.badRequest(ErrorCode.VALIDATION_ERROR, 'Cannot delete your own account');
+  }
+
+  const [deleted] = await db
+    .update(users)
+    .set({ deletedAt: new Date(), status: 'INACTIVE', updatedAt: new Date() })
+    .where(and(eq(users.id, staffId), eq(users.organizationId, orgId), isNull(users.deletedAt)))
+    .returning({ id: users.id });
+
+  if (!deleted) throw AppError.notFound(ErrorCode.STAFF_NOT_FOUND, 'Staff member not found');
+
+  // Revoke all sessions
+  await db.update(userSessions).set({ revokedAt: new Date() }).where(
+    and(eq(userSessions.userId, staffId), isNull(userSessions.revokedAt)),
+  );
+
+  await auditLog({
+    organizationId: orgId,
+    actorId,
+    action: AuditAction.STAFF_DELETED,
+    entityType: 'staff',
+    entityId: staffId,
+    description: 'Staff member soft deleted',
+  });
+
+  return { success: true };
+}
+
+// ── RBAC Utils ─────────────────────────────────────────────────────────────────
 
 export async function getRolesService(orgId: string) {
   return db.select().from(roles).where(eq(roles.organizationId, orgId)).orderBy(roles.name);

@@ -2,7 +2,8 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import {
   listStaffService, createStaffService, getStaffService,
   updateStaffService, updateStaffStatusService, updateStaffPermissionsService,
-  getRolesService, getAuditLogsService, inviteStaffService, resetStaffPasswordService
+  getRolesService, getAuditLogsService, inviteStaffService, resetStaffPasswordService,
+  deleteStaffService
 } from './staff.service';
 import { SYSTEM_PERMISSIONS } from '../../db/schema/rbac.schema';
 
@@ -60,6 +61,11 @@ export const staffController = {
 
   async resetPassword(request: FastifyRequest<{ Params: { staffId: string } }>, reply: FastifyReply) {
     const result = await resetStaffPasswordService(request.user.orgId, request.params.staffId, request.user.userId);
+    return reply.send(result);
+  },
+
+  async delete(request: FastifyRequest<{ Params: { staffId: string } }>, reply: FastifyReply) {
+    const result = await deleteStaffService(request.user.orgId, request.params.staffId, request.user.userId);
     return reply.send(result);
   },
 };
