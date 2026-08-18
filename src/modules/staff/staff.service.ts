@@ -63,8 +63,11 @@ export async function listStaffService(orgId: string, query: Record<string, unkn
       photoUrl: users.photoUrl,
       lastLoginAt: users.lastLoginAt,
       createdAt: users.createdAt,
+      permissions: userPermissions.permissions,
+      branchId: users.branchId,
     })
     .from(users)
+    .leftJoin(userPermissions, eq(users.id, userPermissions.userId))
     .where(whereClause)
     .orderBy(desc(users.createdAt))
     .limit(limit)
@@ -356,6 +359,7 @@ export async function inviteStaffService(
   if (existing) {
     await db.update(users).set({
       deletedAt: null,
+      status: 'ACTIVE',
       organizationId: orgId,
       branchId: data.branchId,
       passwordHash: dummyPasswordHash,
