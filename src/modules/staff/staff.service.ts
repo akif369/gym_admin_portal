@@ -2,7 +2,7 @@ import * as argon2 from 'argon2';
 import { db } from '../../db/index';
 import { users, userSessions, userPermissions, roles, staffInviteTokens, passwordResetTokens } from '../../db/schema/index';
 import { staffAuditLogs } from '../../db/schema/audit.schema';
-import { eq, and, isNull, ilike, desc, or, sql, count } from 'drizzle-orm';
+import { eq, and, isNull, ilike, desc, or, sql, count, ne } from 'drizzle-orm';
 import { AppError, ErrorCode } from '../../common/errors/AppError';
 import { parsePagination, paginationToLimitOffset, buildPaginatedResponse } from '../../common/pagination/paginate';
 import { auditLog } from '../../common/audit/auditLog';
@@ -26,6 +26,7 @@ export async function listStaffService(orgId: string, query: Record<string, unkn
   const conditions = [
     eq(users.organizationId, orgId),
     isNull(users.deletedAt),
+    ne(users.role, 'MEMBER'),
   ];
 
   if (search) {
@@ -339,43 +340,57 @@ export async function inviteStaffService(
 ) {
   // Check email uniqueness
   const [existing] = await db
-    .select({ id: users.id })
+    .select({ id: users.id, deletedAt: users.deletedAt })
     .from(users)
-    .where(and(eq(users.email, data.email.toLowerCase()), isNull(users.deletedAt)))
+    .where(eq(users.email, data.email.toLowerCase()))
     .limit(1);
 
-  if (existing) {
-    throw AppError.conflict(ErrorCode.EMAIL_ALREADY_EXISTS, 'A user with this email already exists');
+  if (existing && !existing.deletedAt) {
+    throw AppError.conflict(ErrorCode.EMAIL_ALREADY_EXISTS, 'An active user with this email already exists');
   }
 
-  // Create user with a dummy password and isInvitePending flag
+  // Create or restore user with a dummy password and isInvitePending flag
   const dummyPasswordHash = await argon2.hash(crypto.randomBytes(32).toString('hex'));
+  let staffId: string;
 
-  const [staff] = await db
-    .insert(users)
-    .values({
+  if (existing) {
+    await db.update(users).set({
+      deletedAt: null,
       organizationId: orgId,
       branchId: data.branchId,
-      email: data.email.toLowerCase(),
       passwordHash: dummyPasswordHash,
       role: data.role as any,
       firstName: data.firstName,
       lastName: data.lastName,
       phone: data.phone,
       isInvitePending: true,
-    })
-    .returning({
-      id: users.id,
-      email: users.email,
-      firstName: users.firstName,
-      lastName: users.lastName,
-      phone: users.phone,
-      role: users.role,
-    });
+      updatedAt: new Date(),
+    }).where(eq(users.id, existing.id));
+    staffId = existing.id;
+    
+    // Clear old permissions
+    await db.delete(userPermissions).where(eq(userPermissions.userId, staffId));
+  } else {
+    const [staff] = await db
+      .insert(users)
+      .values({
+        organizationId: orgId,
+        branchId: data.branchId,
+        email: data.email.toLowerCase(),
+        passwordHash: dummyPasswordHash,
+        role: data.role as any,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        phone: data.phone,
+        isInvitePending: true,
+      })
+      .returning({ id: users.id });
+    staffId = staff!.id;
+  }
 
   if (data.permissions && data.permissions.length > 0) {
     await db.insert(userPermissions).values({
-      userId: staff!.id,
+      userId: staffId,
       permissions: data.permissions,
       grantedBy: actorId,
     });
@@ -386,12 +401,12 @@ export async function inviteStaffService(
   const tokenHash = await argon2.hash(rawToken);
 
   await db.insert(staffInviteTokens).values({
-    userId: staff!.id,
+    userId: staffId,
     tokenHash,
     expiresAt: addDays(new Date(), 7),
   });
 
-  const inviteLink = `${process.env.PUBLIC_API_URL?.replace('/api/v1', '')}/invite/accept?token=${rawToken}&uid=${staff!.id}`;
+  const inviteLink = `${process.env.PUBLIC_API_URL?.replace('/api/v1', '')}/invite/accept?token=${rawToken}&uid=${staffId}`;
 
   // Log action
   await auditLog({
@@ -399,7 +414,7 @@ export async function inviteStaffService(
     actorId,
     action: AuditAction.STAFF_CREATED,
     entityType: 'staff',
-    entityId: staff!.id,
+    entityId: staffId,
     description: `Staff invite sent to ${data.email}`,
   });
 
@@ -410,11 +425,11 @@ export async function inviteStaffService(
       eventType: 'WELCOME',
       phone: data.phone,
       text: `Welcome to GYMatrix, ${data.firstName}! You have been invited to join the staff portal as a ${data.role}. Please set up your password here: ${inviteLink}`,
-      idempotencyKey: `invite-${staff!.id}-${Date.now()}`,
+      idempotencyKey: `invite-${staffId}-${Date.now()}`,
     }).catch(err => log.error(err, 'Failed to send WhatsApp invite'));
   }
 
-  return { staff, inviteLink };
+  return { success: true, staffId, inviteLink };
 }
 
 // ── Reset Password (Admin Initiated) ──────────────────────────────────────────
