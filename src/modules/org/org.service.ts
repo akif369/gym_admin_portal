@@ -1,6 +1,6 @@
 import { db } from '../../db/index';
-import { organizations, branches, settings } from '../../db/schema/index';
-import { eq, and, isNull } from 'drizzle-orm';
+import { organizations, branches, settings, users, members } from '../../db/schema/index';
+import { eq, and, isNull, ne, sql } from 'drizzle-orm';
 import { AppError, ErrorCode } from '../../common/errors/AppError';
 import { createLogger } from '../../common/logger/index';
 import { auditLog } from '../../common/audit/auditLog';
@@ -49,7 +49,42 @@ export async function updateOrgService(orgId: string, data: Partial<typeof organ
 // ── Branches ──────────────────────────────────────────────────────────────────
 
 export async function listBranchesService(orgId: string) {
-  return db.select().from(branches).where(eq(branches.organizationId, orgId)).orderBy(branches.name);
+  const branchList = await db.select().from(branches).where(eq(branches.organizationId, orgId)).orderBy(branches.name);
+
+  // Fetch counts from users table
+  const userCounts = await db
+    .select({
+      branchId: users.branchId,
+      role: users.role,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(users)
+    .where(and(eq(users.organizationId, orgId), isNull(users.deletedAt)))
+    .groupBy(users.branchId, users.role);
+
+  // Fetch counts from members table
+  const memberCounts = await db
+    .select({
+      branchId: members.branchId,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(members)
+    .where(eq(members.organizationId, orgId))
+    .groupBy(members.branchId);
+
+  return branchList.map(branch => {
+    const branchUsers = userCounts.filter(uc => uc.branchId === branch.id);
+    const trainers = branchUsers.filter(uc => uc.role === 'TRAINER').reduce((acc, curr) => acc + curr.count, 0);
+    const staff = branchUsers.filter(uc => uc.role !== 'TRAINER' && uc.role !== 'MEMBER').reduce((acc, curr) => acc + curr.count, 0);
+    const membersCount = memberCounts.find(mc => mc.branchId === branch.id)?.count || 0;
+
+    return {
+      ...branch,
+      trainers,
+      staff,
+      members: membersCount,
+    };
+  });
 }
 
 export async function createBranchService(orgId: string, data: Omit<typeof branches.$inferInsert, 'id' | 'organizationId' | 'createdAt' | 'updatedAt'>) {
