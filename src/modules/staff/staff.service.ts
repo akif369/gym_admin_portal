@@ -334,7 +334,7 @@ export async function getAuditLogsService(orgId: string, query: Record<string, u
 
 export async function inviteStaffService(
   orgId: string,
-  data: { email: string; firstName: string; lastName: string; phone?: string; role: string; branchId?: string },
+  data: { email: string; firstName: string; lastName: string; phone?: string; role: string; branchId?: string; permissions?: string[] },
   actorId: string,
 ) {
   // Check email uniqueness
@@ -372,6 +372,14 @@ export async function inviteStaffService(
       phone: users.phone,
       role: users.role,
     });
+
+  if (data.permissions && data.permissions.length > 0) {
+    await db.insert(userPermissions).values({
+      userId: staff!.id,
+      permissions: data.permissions,
+      grantedBy: actorId,
+    });
+  }
 
   // Generate invite token
   const rawToken = crypto.randomBytes(32).toString('hex');

@@ -45,6 +45,7 @@ export async function staffRoutes(fastify: FastifyInstance): Promise<void> {
           phone: { type: 'string' },
           role: { type: 'string', enum: ['ORGANIZATION_OWNER', 'BRANCH_OWNER', 'BRANCH_MANAGER', 'MANAGER', 'RECEPTIONIST', 'SALES_STAFF', 'ACCOUNTANT', 'TRAINER', 'OWNER'] },
           branchId: { type: 'string', format: 'uuid' },
+          permissions: { type: 'array', items: { type: 'string' } },
         },
       },
     },
