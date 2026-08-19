@@ -1,0 +1,2 @@
+CREATE TYPE "public"."organization_mode" AS ENUM('SINGLE_GYM', 'MULTI_GYM');--> statement-breakpoint
+ALTER TABLE "organizations" ADD COLUMN "organization_mode" "organization_mode" DEFAULT 'SINGLE_GYM' NOT NULL;

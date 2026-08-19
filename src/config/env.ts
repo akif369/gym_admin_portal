@@ -85,11 +85,7 @@ export const config = {
     refreshExpiresInMs: 365 * 24 * 60 * 60 * 1000, // 365 days in ms
   },
 
-  // ── SUPER ADMIN ──────────────────────────────────────────────
-  superAdmin: {
-    email: requireEnv('SUPER_ADMIN_EMAIL'),
-    password: requireEnv('SUPER_ADMIN_PASSWORD'),
-  },
+
 
   // ── CORS ─────────────────────────────────────────────────────
   corsOrigins: optionalEnv('CORS_ORIGIN', 'http://localhost:3000').split(',').map(s => s.trim()),

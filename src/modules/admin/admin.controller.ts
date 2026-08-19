@@ -4,6 +4,7 @@ import {
   getAdminStats,
   listOrganizations,
   updateOrganizationStatus,
+  updateOrganizationMode,
   getOrganizationBranches,
   resetOrganizationOwnerPassword,
   createOrganization,
@@ -27,6 +28,14 @@ export const adminController = {
   async updateOrganizationStatus(req: FastifyRequest<{ Params: { orgId: string } }>, reply: FastifyReply) {
     const status = (req.body as any).status;
     return reply.send({ organization: await updateOrganizationStatus(req.params.orgId, status) });
+  },
+
+  async updateOrganizationMode(req: FastifyRequest<{ Params: { orgId: string } }>, reply: FastifyReply) {
+    const { mode } = req.body as { mode: 'SINGLE_GYM' | 'MULTI_GYM' };
+    if (!mode || !['SINGLE_GYM', 'MULTI_GYM'].includes(mode)) {
+      return reply.status(400).send({ error: { message: 'mode must be SINGLE_GYM or MULTI_GYM' } });
+    }
+    return reply.send({ organization: await updateOrganizationMode(req.params.orgId, mode) });
   },
 
   async getBranches(req: FastifyRequest<{ Params: { orgId: string } }>, reply: FastifyReply) {

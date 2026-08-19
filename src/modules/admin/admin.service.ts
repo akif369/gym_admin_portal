@@ -5,32 +5,72 @@ import { v4 as uuidv4 } from 'uuid';
 import { config } from '../../config/env';
 import { db } from '../../db/index';
 import { AppError, ErrorCode } from '../../common/errors/AppError';
-import { organizations, users, branches, roles, settings, members, paymentTransactions, staffAuditLogs } from '../../db/schema/index';
+import { organizations, users, branches, roles, settings, members, paymentTransactions, staffAuditLogs, platformAdmins } from '../../db/schema/index';
 import type { FastifyInstance } from 'fastify';
 
 export async function superAdminLogin(fastify: FastifyInstance, payload: any) {
   const { email, password } = payload;
   
-  if (
-    email !== config.superAdmin.email ||
-    password !== config.superAdmin.password
-  ) {
-    throw AppError.unauthorized(ErrorCode.UNAUTHORIZED, 'Invalid admin credentials');
+  const normalizedEmail = email.trim().toLowerCase();
+  
+  const [admin] = await db
+    .select()
+    .from(platformAdmins)
+    .where(eq(platformAdmins.email, normalizedEmail));
+
+  if (!admin) {
+    throw AppError.unauthorized(ErrorCode.INVALID_CREDENTIALS, 'Invalid admin credentials');
   }
+
+  if (admin.status !== 'ACTIVE') {
+    throw AppError.forbidden(ErrorCode.ACCOUNT_INACTIVE, 'Account is inactive or suspended');
+  }
+
+  if (admin.lockedUntil && new Date() < admin.lockedUntil) {
+    throw AppError.forbidden(ErrorCode.ACCOUNT_LOCKED, 'Account is temporarily locked. Try again later.');
+  }
+
+  const isValid = await argon2.verify(admin.passwordHash, password);
+
+  if (!isValid) {
+    const newFailCount = admin.failedLoginAttempts + 1;
+    let lockedUntil = null;
+    
+    // Lock for 15 minutes after 5 failed attempts
+    if (newFailCount >= 5) {
+      lockedUntil = new Date(Date.now() + 15 * 60 * 1000);
+    }
+    
+    await db.update(platformAdmins)
+      .set({ failedLoginAttempts: newFailCount, lockedUntil })
+      .where(eq(platformAdmins.id, admin.id));
+      
+    throw AppError.unauthorized(ErrorCode.INVALID_CREDENTIALS, 'Invalid admin credentials');
+  }
+
+  // Reset failed attempts and update last login
+  await db.update(platformAdmins)
+    .set({ 
+      failedLoginAttempts: 0, 
+      lockedUntil: null,
+      lastLoginAt: new Date()
+    })
+    .where(eq(platformAdmins.id, admin.id));
 
   // Create a dummy session ID since we don't track super admin sessions in the DB right now
   const sessionId = uuidv4();
 
   // Sign access token
   const accessToken = fastify.jwt.sign({
-    userId: 'super-admin',
-    email: config.superAdmin.email,
-    role: 'SUPER_ADMIN',
+    userId: admin.id,
+    email: admin.email,
+    role: admin.role,
+    type: 'platform_admin',
     orgId: 'system',
     sessionId,
   });
 
-  return { accessToken, user: { email, role: 'SUPER_ADMIN' } };
+  return { accessToken, user: { id: admin.id, email: admin.email, role: admin.role } };
 }
 
 export async function getAdminStats() {
@@ -59,6 +99,7 @@ export async function listOrganizations() {
       email: organizations.email,
       phone: organizations.phone,
       status: organizations.status,
+      organizationMode: organizations.organizationMode,
       createdAt: organizations.createdAt,
     })
     .from(organizations)
@@ -72,6 +113,33 @@ export async function updateOrganizationStatus(orgId: string, status: 'ACTIVE' |
     .where(eq(organizations.id, orgId))
     .returning();
     
+  if (!org) {
+    throw AppError.notFound(ErrorCode.ORG_NOT_FOUND, 'Organization not found');
+  }
+  return org;
+}
+
+export async function updateOrganizationMode(orgId: string, mode: 'SINGLE_GYM' | 'MULTI_GYM') {
+  // Downgrade guard: only allow MULTI_GYM → SINGLE_GYM if exactly 1 active branch exists
+  if (mode === 'SINGLE_GYM') {
+    const activeBranches = await db
+      .select({ id: branches.id })
+      .from(branches)
+      .where(eq(branches.organizationId, orgId));
+    if (activeBranches.length > 1) {
+      throw AppError.badRequest(
+        ErrorCode.VALIDATION_ERROR,
+        'Cannot switch to Single Gym mode: organization has more than one branch. Deactivate extra branches first.',
+      );
+    }
+  }
+
+  const [org] = await db
+    .update(organizations)
+    .set({ organizationMode: mode, updatedAt: new Date() })
+    .where(eq(organizations.id, orgId))
+    .returning();
+
   if (!org) {
     throw AppError.notFound(ErrorCode.ORG_NOT_FOUND, 'Organization not found');
   }
@@ -117,7 +185,7 @@ export async function resetOrganizationOwnerPassword(orgId: string, newPassword:
 }
 
 export async function createOrganization(payload: any) {
-  const { orgName, orgEmail, branchName, city, ownerFirstName, ownerLastName, ownerEmail, ownerPassword } = payload;
+  const { orgName, orgEmail, branchName, city, ownerFirstName, ownerLastName, ownerEmail, ownerPassword, mode } = payload;
   
   // Transaction to ensure atomicity
   return await db.transaction(async (tx) => {
@@ -127,6 +195,7 @@ export async function createOrganization(payload: any) {
       name: orgName,
       slug,
       email: orgEmail,
+      organizationMode: mode === 'MULTI_GYM' ? 'MULTI_GYM' : 'SINGLE_GYM',
       currency: 'INR',
       timezone: 'Asia/Kolkata',
     }).returning();

@@ -179,3 +179,30 @@ export function getPortalType(role: UserRoleType): 'org-owner' | 'branch' | 'tra
   if (role === 'MEMBER') return 'member';
   return 'branch';
 }
+
+// ── Platform Admins ────────────────────────────────────────────────────────────
+
+export const platformAdminRoleEnum = pgEnum('platform_admin_role', [
+  'SUPER_ADMIN',
+  'ADMIN',
+  'SUPPORT',
+]);
+
+export const platformAdmins = pgTable('platform_admins', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  email: text('email').notNull().unique(), // We'll store lowercase email here
+  passwordHash: text('password_hash').notNull(),
+  role: platformAdminRoleEnum('role').notNull().default('ADMIN'),
+  status: text('status', { enum: ['ACTIVE', 'SUSPENDED'] }).notNull().default('ACTIVE'),
+
+  // Login security fields
+  failedLoginAttempts: integer('failed_login_attempts').notNull().default(0),
+  lockedUntil: timestamp('locked_until', { withTimezone: true }),
+  
+  // Auditing
+  lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+  passwordChangedAt: timestamp('password_changed_at', { withTimezone: true }),
+
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});

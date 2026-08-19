@@ -9,6 +9,7 @@ export interface JwtAccessPayload {
   userId: string;
   email: string;
   role: string | 'SUPER_ADMIN';
+  type?: string;
   orgId: string;
   branchId?: string | null;
   sessionId: string;

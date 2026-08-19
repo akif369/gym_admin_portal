@@ -1,4 +1,21 @@
-import { pgTable, uuid, text, timestamp, integer, boolean, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, integer, boolean, jsonb, pgEnum } from 'drizzle-orm/pg-core';
+
+// ── Enums ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Controls whether the organization runs a single gym or multiple branches.
+ *
+ * SINGLE_GYM  — One gym, simplified UX. "Branches" are hidden from the org admin
+ *               dashboard. Internally still uses the Organization → Branch hierarchy.
+ * MULTI_GYM   — Multiple branches/locations. Full branch management UI is shown.
+ *
+ * Upgrading SINGLE_GYM → MULTI_GYM is always allowed.
+ * Downgrading MULTI_GYM → SINGLE_GYM is only allowed when exactly 1 active branch exists.
+ */
+export const organizationModeEnum = pgEnum('organization_mode', [
+  'SINGLE_GYM',
+  'MULTI_GYM',
+]);
 
 // ── Organizations ─────────────────────────────────────────────────────────────
 
@@ -6,6 +23,13 @@ export const organizations = pgTable('organizations', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
   slug: text('slug').notNull().unique(),
+
+  /**
+   * Determines which features and navigation are visible to the org admin.
+   * Does NOT affect the underlying data model — always Organization → Branch → Members.
+   */
+  organizationMode: organizationModeEnum('organization_mode').notNull().default('SINGLE_GYM'),
+
   logoUrl: text('logo_url'),
   email: text('email'),
   phone: text('phone'),
@@ -64,3 +88,5 @@ export type Branch = typeof branches.$inferSelect;
 export type NewBranch = typeof branches.$inferInsert;
 export type Setting = typeof settings.$inferSelect;
 export type NewSetting = typeof settings.$inferInsert;
+
+export type OrganizationMode = 'SINGLE_GYM' | 'MULTI_GYM';

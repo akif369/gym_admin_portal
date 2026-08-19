@@ -36,6 +36,20 @@
       "when": 1787076466958,
       "tag": "0004_dusty_the_executioner",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787148384376,
+      "tag": "0005_bent_kylun",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787149590645,
+      "tag": "0006_green_micromacro",
+      "breakpoints": true
     }
   ]
 }

@@ -11,6 +11,7 @@ export interface JwtAccessPayload {
   userId: string;
   email: string;
   role: string;
+  type?: string;
   orgId: string;
   branchId?: string | null;
   sessionId: string;

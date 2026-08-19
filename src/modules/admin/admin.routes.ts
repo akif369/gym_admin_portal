@@ -37,6 +37,12 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
     adminController.updateOrganizationStatus as any
   );
 
+  fastify.patch(
+    '/organizations/:orgId/mode',
+    { preHandler: adminAuth, schema: { tags: ['Admin'], summary: 'Change organization mode (SINGLE_GYM / MULTI_GYM)' } },
+    adminController.updateOrganizationMode as any
+  );
+
   fastify.get(
     '/organizations/:orgId/branches',
     { preHandler: adminAuth, schema: { tags: ['Admin'], summary: 'List branches for organization' } },
