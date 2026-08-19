@@ -32,9 +32,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 COPY --from=build /app/dist ./dist
-# Copy the migrations folder to the runner environment
-COPY --from=builder /app/drizzle ./drizzle
-
+COPY --from=build /app/src/db/migrations ./src/db/migrations
 
 RUN mkdir -p uploads && chown -R node:node /app
 
