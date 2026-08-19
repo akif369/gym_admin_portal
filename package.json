@@ -10,7 +10,7 @@
     "start": "node dist/server.js",
     "prod": "npm run build && npm run start",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx src/db/migrate.ts",
+    "db:migrate": "tsx src/db/migrate.js",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx src/db/seeds/seed.ts",
