@@ -7,6 +7,7 @@ import { memberMemberships } from '../../db/schema/memberships.schema';
 import { paymentTransactions } from '../../db/schema/payments.schema';
 import { ptSessions } from '../../db/schema/pt.schema';
 import { trainers } from '../../db/schema/trainers.schema';
+import { branches } from '../../db/schema/org.schema';
 import { toISTDateString, istDayStart, istMonthStart } from '../../common/utils/timezone';
 
 const asNumber = (value: string | number | null | undefined) => Number(value ?? 0);
@@ -142,12 +143,46 @@ export async function getDashboardService(orgId: string, branchId?: string) {
       lte(memberMemberships.endDate, expiryDate),
     ));
 
+  let branchPerformance: any[] = [];
+  if (!branchId) {
+    const allBranches = await db.select().from(branches).where(eq(branches.organizationId, orgId));
+    branchPerformance = await Promise.all(allBranches.map(async b => {
+      const [mRes, rRes, iRes] = await Promise.all([
+        db.select({ activeMembers: count() }).from(members).where(and(
+          eq(members.organizationId, orgId), eq(members.branchId, b.id), isNull(members.deletedAt),
+          sql`(SELECT status FROM member_memberships WHERE member_id = ${members.id} ORDER BY created_at DESC LIMIT 1) = 'ACTIVE'`
+        )),
+        db.select({ monthRevenue: sum(paymentTransactions.totalAmount) }).from(paymentTransactions).where(and(
+          eq(paymentTransactions.organizationId, orgId), eq(paymentTransactions.branchId, b.id),
+          eq(paymentTransactions.status, 'PAID'), gte(paymentTransactions.createdAt, thisMonth)
+        )),
+        db.select({ currentlyInside: count() }).from(attendanceLogs).where(and(
+          eq(attendanceLogs.organizationId, orgId), eq(attendanceLogs.branchId, b.id), isNull(attendanceLogs.checkOutAt)
+        ))
+      ]);
+      const cap = b.capacity || 100;
+      const inside = Number(iRes[0]?.currentlyInside ?? 0);
+      const occupancy = Math.min(Math.round((inside / cap) * 100), 100);
+      return {
+        id: b.id,
+        name: b.name,
+        members: Number(mRes[0]?.activeMembers ?? 0),
+        revenue: asNumber(rRes[0]?.monthRevenue ?? 0),
+        growth: 0,
+        occupancy,
+        status: b.status,
+      };
+    }));
+    // sort by revenue descending
+    branchPerformance.sort((a, b) => b.revenue - a.revenue);
+  }
+
   return {
     stats: {
       todaysCheckins: Number(todaysCheckins), currentlyInside: Number(currentlyInside), todaysRevenue: asNumber(todaysRevenue), monthRevenue: asNumber(monthRevenue), pendingAmount: asNumber(pendingAmount),
       expiringIn7Days: Number(expiringIn7DaysRes[0]?.expiringIn7Days ?? 0), expiredMemberships: Number(expiredMemberships), newMembersMonth: Number(newMembersMonth), activeMembers: Number(activeMembers), inactiveMembers: Number(inactiveMembers), trainersWorking: Number(trainersWorking), totalTrainers: Number(totalTrainers), todaysPtSessions: Number(todaysPtSessions), newLeads: Number(newLeads),
     },
-    revenueChart, attendanceChart, peakHours,
+    revenueChart, attendanceChart, peakHours, branchPerformance,
     recentLogs: recentLogs.map(log => ({ ...log, date: toISTDateString(log.checkInAt), checkIn: log.checkInAt.toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }), checkOut: log.checkOutAt ? log.checkOutAt.toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }) : null, method: log.checkInMethod })),
     recentPayments: recentPayments.map(payment => ({ ...payment, amount: asNumber(payment.amount), date: toISTDateString(payment.createdAt), method: payment.paymentMethod, refId: payment.referenceId ?? '', plan: payment.description ?? '' })),
   };
