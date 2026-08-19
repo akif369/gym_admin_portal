@@ -32,7 +32,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/src/db/migrations ./src/db/migrations
+COPY --from=build /app/src/db/migrations ./dist/db/migrations
 
 RUN mkdir -p uploads && chown -R node:node /app
 

@@ -8,7 +8,7 @@ export const staffAuditLogs = pgTable('staff_audit_logs', {
   id: uuid('id').primaryKey().defaultRandom(),
   organizationId: uuid('organization_id')
     .notNull()
-    .references(() => organizations.id, { onDelete: 'cascade' }),
+    .references(() => organizations.id, { onDelete: 'restrict' }),
   actorId: uuid('actor_id').references(() => users.id),
   actorEmail: text('actor_email'), // denormalized for immutability
   actorRole: text('actor_role'), // denormalized
@@ -28,6 +28,28 @@ export const staffAuditLogs = pgTable('staff_audit_logs', {
 
 export type StaffAuditLog = typeof staffAuditLogs.$inferSelect;
 export type NewStaffAuditLog = typeof staffAuditLogs.$inferInsert;
+
+// ── Platform Audit Logs (Immutable) ───────────────────────────────────────────
+
+export const platformAuditLogs = pgTable('platform_audit_logs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  actorId: uuid('actor_id'), // could be a platform admin ID or system
+  actorType: text('actor_type').notNull().default('PLATFORM_ADMIN'), // 'PLATFORM_ADMIN' | 'SYSTEM'
+  actorEmail: text('actor_email'),
+  action: text('action').notNull(),
+  entityType: text('entity_type').notNull(), // 'ORGANIZATION' | 'ADMIN' | 'SUBSCRIPTION' etc.
+  entityId: uuid('entity_id'),
+  description: text('description'),
+  beforeState: jsonb('before_state'),
+  afterState: jsonb('after_state'),
+  ipAddress: text('ip_address'),
+  userAgent: text('user_agent'),
+  requestId: text('request_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type PlatformAuditLog = typeof platformAuditLogs.$inferSelect;
+export type NewPlatformAuditLog = typeof platformAuditLogs.$inferInsert;
 
 // ── Audit Action Constants ─────────────────────────────────────────────────────
 

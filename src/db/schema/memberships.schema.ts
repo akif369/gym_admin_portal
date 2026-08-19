@@ -1,4 +1,5 @@
-import { pgTable, uuid, text, timestamp, integer, boolean, numeric, jsonb, date, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, integer, boolean, numeric, jsonb, date, pgEnum, check } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { organizations } from './org.schema';
 import { members } from './members.schema';
 import { users } from './auth.schema';
@@ -44,7 +45,13 @@ export const membershipPlans = pgTable('membership_plans', {
   status: text('status', { enum: ['ACTIVE', 'INACTIVE'] }).notNull().default('ACTIVE'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => [
+  check('plans_price_check', sql`${table.price} >= 0`),
+  check('plans_duration_check', sql`${table.durationDays} > 0`),
+  check('plans_gst_check', sql`${table.gstPercent} >= 0 AND ${table.gstPercent} <= 100`),
+  check('plans_joining_fee_check', sql`${table.joiningFee} >= 0`),
+  check('plans_pt_sessions_check', sql`${table.ptSessionsIncluded} >= 0`),
+]);
 
 // ── Member Memberships ────────────────────────────────────────────────────────
 
@@ -68,7 +75,11 @@ export const memberMemberships = pgTable('member_memberships', {
   createdBy: uuid('created_by').references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => [
+  check('memberships_pt_total_check', sql`${table.ptSessionsTotal} >= 0`),
+  check('memberships_pt_used_check', sql`${table.ptSessionsUsed} >= 0 AND ${table.ptSessionsUsed} <= ${table.ptSessionsTotal}`),
+  check('memberships_frozen_days_check', sql`${table.frozenDays} >= 0`),
+]);
 
 // ── Membership Events (Immutable Ledger) ──────────────────────────────────────
 

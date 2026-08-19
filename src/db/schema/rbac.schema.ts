@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, jsonb, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, jsonb, boolean, uniqueIndex } from 'drizzle-orm/pg-core';
 import { organizations } from './org.schema';
 import { users } from './auth.schema';
 
@@ -16,7 +16,9 @@ export const roles = pgTable('roles', {
   isSystem: boolean('is_system').notNull().default(false), // system roles can't be deleted
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => [
+  uniqueIndex('roles_org_key_unique').on(table.organizationId, table.key),
+]);
 
 // ── User Permission Overrides ─────────────────────────────────────────────────
 // Per-user permission overrides on top of role defaults
@@ -28,6 +30,8 @@ export const userPermissions = pgTable('user_permissions', {
     .references(() => users.id, { onDelete: 'cascade' }),
   permissions: jsonb('permissions').notNull().default('[]'), // string[] — full override
   grantedBy: uuid('granted_by').references(() => users.id),
+  reason: text('reason'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

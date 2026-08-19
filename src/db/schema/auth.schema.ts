@@ -1,5 +1,5 @@
-import { pgTable, uuid, text, timestamp, integer, boolean, pgEnum } from 'drizzle-orm/pg-core';
-import { organizations } from './org.schema';
+import { pgTable, uuid, text, timestamp, integer, boolean, pgEnum, foreignKey } from 'drizzle-orm/pg-core';
+import { branches, organizations } from './org.schema';
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
 
@@ -76,7 +76,12 @@ export const users = pgTable('users', {
 
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => [
+  foreignKey({
+    columns: [table.branchId, table.organizationId],
+    foreignColumns: [branches.id, branches.organizationId],
+  }),
+]);
 
 // ── Staff Invite Tokens ───────────────────────────────────────────────────────
 
@@ -201,6 +206,7 @@ export const platformAdmins = pgTable('platform_admins', {
   
   // Auditing
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+  lastLoginIp: text('last_login_ip'),
   passwordChangedAt: timestamp('password_changed_at', { withTimezone: true }),
 
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

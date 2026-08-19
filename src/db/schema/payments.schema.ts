@@ -1,4 +1,5 @@
-import { pgTable, uuid, text, timestamp, numeric, integer, pgEnum, boolean, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, numeric, integer, pgEnum, boolean, uniqueIndex, check, foreignKey } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { organizations } from './org.schema';
 import { branches } from './org.schema';
 import { members } from './members.schema';
@@ -40,8 +41,8 @@ export const paymentTransactions = pgTable('payment_transactions', {
   id: uuid('id').primaryKey().defaultRandom(),
   organizationId: uuid('organization_id')
     .notNull()
-    .references(() => organizations.id, { onDelete: 'cascade' }),
-  branchId: uuid('branch_id').references(() => branches.id),
+    .references(() => organizations.id, { onDelete: 'restrict' }),
+  branchId: uuid('branch_id'),
   memberId: uuid('member_id').references(() => members.id),
   invoiceId: uuid('invoice_id'), // set after invoice is created — circular ref handled at app level
   memberName: text('member_name'), // denormalized
@@ -58,7 +59,15 @@ export const paymentTransactions = pgTable('payment_transactions', {
   paidAt: timestamp('paid_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => [
+  foreignKey({
+    columns: [table.branchId, table.organizationId],
+    foreignColumns: [branches.id, branches.organizationId],
+  }),
+  check('payments_amount_check', sql`${table.amount} >= 0`),
+  check('payments_gst_check', sql`${table.gstAmount} >= 0`),
+  check('payments_total_check', sql`${table.totalAmount} >= 0`),
+]);
 
 // ── Invoices ──────────────────────────────────────────────────────────────────
 
@@ -66,7 +75,7 @@ export const invoices = pgTable('invoices', {
   id: uuid('id').primaryKey().defaultRandom(),
   organizationId: uuid('organization_id')
     .notNull()
-    .references(() => organizations.id, { onDelete: 'cascade' }),
+    .references(() => organizations.id, { onDelete: 'restrict' }),
   memberId: uuid('member_id').references(() => members.id),
   membershipId: uuid('membership_id').references(() => memberMemberships.id, { onDelete: 'set null' }),
   memberName: text('member_name'), // denormalized
@@ -88,7 +97,6 @@ export const invoices = pgTable('invoices', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   uniqueIndex('invoices_organization_invoice_number_unique').on(table.organizationId, table.invoiceNumber),
-  uniqueIndex('invoices_membership_id_unique').on(table.membershipId),
 ]);
 
 // ── Invoice Line Items ─────────────────────────────────────────────────────────
@@ -112,7 +120,7 @@ export const refunds = pgTable('refunds', {
   id: uuid('id').primaryKey().defaultRandom(),
   paymentId: uuid('payment_id')
     .notNull()
-    .references(() => paymentTransactions.id),
+    .references(() => paymentTransactions.id, { onDelete: 'restrict' }),
   amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
   reason: text('reason').notNull(),
   status: text('status', { enum: ['PENDING', 'PROCESSED', 'FAILED'] }).notNull().default('PENDING'),

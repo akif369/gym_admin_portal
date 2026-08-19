@@ -1,4 +1,5 @@
-import { pgTable, uuid, text, timestamp, integer, boolean, jsonb, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, integer, boolean, jsonb, pgEnum, uniqueIndex, check } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
 
@@ -50,8 +51,8 @@ export const organizations = pgTable('organizations', {
 export const branches = pgTable('branches', {
   id: uuid('id').primaryKey().defaultRandom(),
   organizationId: uuid('organization_id')
-    .notNull()
-    .references(() => organizations.id, { onDelete: 'cascade' }),
+  .notNull()
+  .references(() => organizations.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   address: text('address'),
   city: text('city'),
@@ -62,7 +63,10 @@ export const branches = pgTable('branches', {
   isMainBranch: boolean('is_main_branch').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => [
+  uniqueIndex('branches_id_org_unique').on(table.id, table.organizationId),
+  check('branches_capacity_check', sql`${table.capacity} >= 0`),
+]);
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 // Flexible key-value settings scoped to org or branch
@@ -70,15 +74,20 @@ export const branches = pgTable('branches', {
 export const settings = pgTable('settings', {
   id: uuid('id').primaryKey().defaultRandom(),
   organizationId: uuid('organization_id')
-    .notNull()
-    .references(() => organizations.id, { onDelete: 'cascade' }),
-  branchId: uuid('branch_id'), // NULL = org-wide setting
+  .notNull()
+  .references(() => organizations.id, { onDelete: 'cascade' }),
+  branchId: uuid('branch_id').references(() => branches.id, { onDelete: 'cascade' }), // NULL = org-wide setting
   category: text('category').notNull(), // 'gym-profile' | 'attendance' | 'tax' | 'invoice' | 'hardware'
   value: jsonb('value').notNull().default('{}'),
   updatedBy: uuid('updated_by'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => [
+  // If branchId is NULL, PG treats them as distinct unless we use coalesce or conditional index.
+  // Using conditional unique index for org-level and standard unique for branch-level:
+  uniqueIndex('settings_org_category_unique').on(table.organizationId, table.category).where(sql`${table.branchId} IS NULL`),
+  uniqueIndex('settings_org_branch_category_unique').on(table.organizationId, table.branchId, table.category).where(sql`${table.branchId} IS NOT NULL`),
+]);
 
 // ── Type Exports ──────────────────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, pgEnum, foreignKey } from 'drizzle-orm/pg-core';
 import { organizations } from './org.schema';
 import { branches } from './org.schema';
 import { members } from './members.schema';
@@ -20,7 +20,7 @@ export const attendanceLogs = pgTable('attendance_logs', {
   organizationId: uuid('organization_id')
     .notNull()
     .references(() => organizations.id, { onDelete: 'cascade' }),
-  branchId: uuid('branch_id').references(() => branches.id),
+  branchId: uuid('branch_id'),
   memberId: uuid('member_id')
     .notNull()
     .references(() => members.id, { onDelete: 'cascade' }),
@@ -36,7 +36,12 @@ export const attendanceLogs = pgTable('attendance_logs', {
   correctionReason: text('correction_reason'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => [
+  foreignKey({
+    columns: [table.branchId, table.organizationId],
+    foreignColumns: [branches.id, branches.organizationId],
+  }),
+]);
 
 // ── Type Exports ──────────────────────────────────────────────────────────────
 

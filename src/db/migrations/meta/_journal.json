@@ -50,6 +50,13 @@
       "when": 1787149590645,
       "tag": "0006_green_micromacro",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787167969466,
+      "tag": "0007_fearless_wolfsbane",
+      "breakpoints": true
     }
   ]
 }

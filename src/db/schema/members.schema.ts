@@ -1,4 +1,5 @@
-import { pgTable, uuid, text, timestamp, boolean, pgEnum, date } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, boolean, pgEnum, date, numeric, foreignKey } from 'drizzle-orm/pg-core';
+import { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { organizations } from './org.schema';
 import { branches } from './org.schema';
 
@@ -26,7 +27,7 @@ export const members = pgTable('members', {
   organizationId: uuid('organization_id')
     .notNull()
     .references(() => organizations.id, { onDelete: 'cascade' }),
-  branchId: uuid('branch_id').references(() => branches.id),
+  branchId: uuid('branch_id'),
   memberNumber: text('member_number').notNull(), // e.g. GYM001 — unique per org
   firstName: text('first_name').notNull(),
   lastName: text('last_name').notNull(),
@@ -41,14 +42,19 @@ export const members = pgTable('members', {
   status: memberStatusEnum('status').notNull().default('ACTIVE'),
   joinDate: date('join_date').notNull(),
   notes: text('notes'),
-  referredBy: uuid('referred_by'), // member_id of referrer
+  referredBy: uuid('referred_by').references((): AnyPgColumn => members.id, { onDelete: 'set null' }), // member_id of referrer
 
   // Soft delete
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => [
+  foreignKey({
+    columns: [table.branchId, table.organizationId],
+    foreignColumns: [branches.id, branches.organizationId],
+  }),
+]);
 
 // ── Member Emergency Contacts ─────────────────────────────────────────────────
 
@@ -90,14 +96,14 @@ export const memberMeasurements = pgTable('member_measurements', {
     .notNull()
     .references(() => members.id, { onDelete: 'cascade' }),
   recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull(),
-  weightKg: text('weight_kg'), // stored as text to preserve precision
-  bodyFatPercent: text('body_fat_percent'),
-  chestCm: text('chest_cm'),
-  waistCm: text('waist_cm'),
-  hipCm: text('hip_cm'),
-  armCm: text('arm_cm'),
-  thighCm: text('thigh_cm'),
-  bmi: text('bmi'),
+  weightKg: numeric('weight_kg', { precision: 6, scale: 2 }),
+  bodyFatPercent: numeric('body_fat_percent', { precision: 5, scale: 2 }),
+  chestCm: numeric('chest_cm', { precision: 6, scale: 2 }),
+  waistCm: numeric('waist_cm', { precision: 6, scale: 2 }),
+  hipCm: numeric('hip_cm', { precision: 6, scale: 2 }),
+  armCm: numeric('arm_cm', { precision: 6, scale: 2 }),
+  thighCm: numeric('thigh_cm', { precision: 6, scale: 2 }),
+  bmi: numeric('bmi', { precision: 5, scale: 2 }),
   notes: text('notes'),
   recordedBy: uuid('recorded_by'), // staff user_id
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

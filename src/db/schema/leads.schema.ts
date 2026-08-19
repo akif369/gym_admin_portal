@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, pgEnum, foreignKey } from 'drizzle-orm/pg-core';
 import { organizations } from './org.schema';
 import { branches } from './org.schema';
 import { users } from './auth.schema';
@@ -41,7 +41,7 @@ export const leads = pgTable('leads', {
   organizationId: uuid('organization_id')
     .notNull()
     .references(() => organizations.id, { onDelete: 'cascade' }),
-  branchId: uuid('branch_id').references(() => branches.id),
+  branchId: uuid('branch_id'),
   name: text('name').notNull(),
   email: text('email'),
   phone: text('phone').notNull(),
@@ -55,7 +55,12 @@ export const leads = pgTable('leads', {
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => [
+  foreignKey({
+    columns: [table.branchId, table.organizationId],
+    foreignColumns: [branches.id, branches.organizationId],
+  }),
+]);
 
 // ── Lead Activities ────────────────────────────────────────────────────────────
 
