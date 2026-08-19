@@ -10,6 +10,8 @@ import {
   forgotPasswordService,
   resetPasswordService,
   changePasswordService,
+  verifyStaffInviteService,
+  acceptStaffInviteService,
 } from './auth.service';
 import {
   loginSchema,
@@ -74,7 +76,21 @@ export const authController = {
   async resetPassword(request: FastifyRequest, reply: FastifyReply) {
     const body = resetPasswordSchema.parse(request.body);
     await resetPasswordService(body.token, body.newPassword, request.ip);
-    return reply.status(200).send({ message: 'Password reset successfully' });
+    return reply.status(200).send({ success: true, message: 'Password reset successfully' });
+  },
+
+  async verifyInvite(request: FastifyRequest<{ Querystring: { token: string } }>, reply: FastifyReply) {
+    const { token } = request.query;
+    if (!token) return reply.status(400).send({ error: 'Token is required' });
+    const result = await verifyStaffInviteService(token);
+    return reply.send(result);
+  },
+
+  async acceptInvite(request: FastifyRequest, reply: FastifyReply) {
+    // Re-use the resetPasswordSchema since it just needs token and newPassword
+    const body = resetPasswordSchema.parse(request.body);
+    await acceptStaffInviteService(body.token, body.newPassword, request.ip);
+    return reply.status(200).send({ success: true, message: 'Invite accepted successfully' });
   },
 
   async changePassword(request: FastifyRequest, reply: FastifyReply) {

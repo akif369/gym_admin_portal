@@ -68,6 +68,37 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     },
   }, authController.resetPassword);
 
+  fastify.post('/invite/accept', {
+    schema: {
+      tags: ['Auth'],
+      summary: 'Complete staff invite and set password',
+      security: [],
+      body: {
+        type: 'object',
+        required: ['token', 'newPassword'],
+        properties: {
+          token: { type: 'string' },
+          newPassword: { type: 'string', minLength: 8 },
+        },
+      },
+    },
+  }, authController.acceptInvite);
+
+  fastify.get('/invite/verify', {
+    schema: {
+      tags: ['Auth'],
+      summary: 'Verify if a staff invite token is still valid',
+      security: [],
+      querystring: {
+        type: 'object',
+        required: ['token'],
+        properties: {
+          token: { type: 'string' },
+        },
+      },
+    },
+  }, authController.verifyInvite);
+
   // ── Authenticated endpoints ───────────────────────────────────────────────
   fastify.get('/me', {
     preHandler: [requireAuth],

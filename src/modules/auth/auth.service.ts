@@ -10,6 +10,7 @@ import {
   passwordResetTokens,
   organizations,
   getPortalType,
+  staffInviteTokens,
   type UserRoleType,
 } from '../../db/schema/index';
 import { roles, userPermissions, DEFAULT_ROLE_PERMISSIONS } from '../../db/schema/rbac.schema';
@@ -555,3 +556,112 @@ export async function changePasswordService(
     ipAddress,
   });
 }
+
+// ── Verify Staff Invite ───────────────────────────────────────────────────────
+
+export async function verifyStaffInviteService(token: string) {
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+  const [invite] = await db
+    .select()
+    .from(staffInviteTokens)
+    .where(eq(staffInviteTokens.tokenHash, tokenHash))
+    .limit(1);
+
+  if (!invite) {
+    throw AppError.badRequest(ErrorCode.INVALID_TOKEN, 'Invalid invite token');
+  }
+
+  if (invite.acceptedAt) {
+    throw AppError.badRequest(ErrorCode.INVALID_TOKEN, 'This invite link has already been used');
+  }
+
+  if (new Date() > invite.expiresAt) {
+    throw AppError.badRequest(ErrorCode.INVALID_TOKEN, 'This invite link has expired');
+  }
+
+  const [user] = await db
+    .select({ email: users.email, name: users.firstName })
+    .from(users)
+    .where(and(eq(users.id, invite.userId), isNull(users.deletedAt)))
+    .limit(1);
+
+  if (!user) {
+    throw AppError.badRequest(ErrorCode.STAFF_NOT_FOUND, 'User not found');
+  }
+
+  return { valid: true, email: user.email, name: user.name };
+}
+
+// ── Accept Staff Invite ───────────────────────────────────────────────────────
+
+export async function acceptStaffInviteService(
+  token: string,
+  newPassword: string,
+  ipAddress?: string,
+) {
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+  const [invite] = await db
+    .select()
+    .from(staffInviteTokens)
+    .where(eq(staffInviteTokens.tokenHash, tokenHash))
+    .limit(1);
+
+  if (!invite) {
+    throw AppError.badRequest(ErrorCode.INVALID_TOKEN, 'Invalid or expired invite token');
+  }
+
+  if (invite.acceptedAt) {
+    throw AppError.badRequest(ErrorCode.INVALID_TOKEN, 'Invite token has already been used');
+  }
+
+  if (new Date() > invite.expiresAt) {
+    throw AppError.badRequest(ErrorCode.INVALID_TOKEN, 'Invite token has expired');
+  }
+
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(and(eq(users.id, invite.userId), isNull(users.deletedAt)))
+    .limit(1);
+
+  if (!user) {
+    throw AppError.badRequest(ErrorCode.STAFF_NOT_FOUND, 'User not found');
+  }
+
+  const passwordHash = await argon2.hash(newPassword, {
+    type: argon2.argon2id,
+    memoryCost: 65536,
+    timeCost: 3,
+    parallelism: 4,
+  });
+
+  await db
+    .update(users)
+    .set({
+      passwordHash,
+      isInvitePending: false,
+      status: 'ACTIVE',
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, user.id));
+
+  await db
+    .update(staffInviteTokens)
+    .set({ acceptedAt: new Date() })
+    .where(eq(staffInviteTokens.id, invite.id));
+
+  await auditLog({
+    organizationId: user.organizationId,
+    actorId: user.id,
+    actorEmail: user.email,
+    action: AuditAction.STAFF_CREATED, // or a new action like INVITE_ACCEPTED
+    entityType: 'auth',
+    description: 'Staff member accepted invite and set password',
+    ipAddress,
+  });
+
+  log.info({ userId: user.id }, 'Staff invite accepted');
+}
+

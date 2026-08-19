@@ -402,7 +402,7 @@ export async function inviteStaffService(
 
   // Generate invite token
   const rawToken = crypto.randomBytes(32).toString('hex');
-  const tokenHash = await argon2.hash(rawToken);
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
 
   await db.insert(staffInviteTokens).values({
     userId: staffId,
@@ -410,7 +410,8 @@ export async function inviteStaffService(
     expiresAt: addDays(new Date(), 7),
   });
 
-  const inviteLink = `${process.env.PUBLIC_API_URL?.replace('/api/v1', '')}/invite/accept?token=${rawToken}&uid=${staffId}`;
+  const frontendUrl = process.env.PUBLIC_APP_URL || 'http://localhost:3000';
+  const inviteLink = `${frontendUrl}/invite?token=${rawToken}`;
 
   // Log action
   await auditLog({
