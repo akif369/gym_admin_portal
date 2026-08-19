@@ -415,6 +415,33 @@ export async function updateMemberStatusService(
   return updated;
 }
 
+// ── Delete Member ─────────────────────────────────────────────────────────────
+
+export async function deleteMemberService(
+  orgId: string,
+  memberId: string,
+  actorId: string,
+) {
+  const [updated] = await db
+    .update(members)
+    .set({ deletedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(members.id, memberId), eq(members.organizationId, orgId), isNull(members.deletedAt)))
+    .returning({ id: members.id });
+
+  if (!updated) throw AppError.notFound(ErrorCode.MEMBER_NOT_FOUND, 'Member not found');
+
+  await auditLog({
+    organizationId: orgId,
+    actorId,
+    action: AuditAction.MEMBER_STATUS_CHANGED, // Or create AuditAction.MEMBER_DELETED
+    entityType: 'member',
+    entityId: memberId,
+    description: 'Member soft-deleted',
+  });
+
+  return { success: true };
+}
+
 // ── Member Activity Timeline ──────────────────────────────────────────────────
 
 export async function getMemberActivityService(orgId: string, memberId: string) {

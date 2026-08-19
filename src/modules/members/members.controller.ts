@@ -1,7 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import {
   listMembersService, createMemberService, getMemberService,
-  updateMemberService, updateMemberStatusService,
+  updateMemberService, updateMemberStatusService, deleteMemberService,
   getMemberActivityService, getMemberMeasurementsService, addMemberMeasurementService,
   getMemberHealthProfileService, updateMemberHealthProfileService,
   uploadMemberPhotoService,
@@ -33,6 +33,11 @@ export const membersController = {
     const { status } = request.body as { status: string };
     const member = await updateMemberStatusService(request.user.orgId, request.params.memberId, status, request.user.userId);
     return reply.send({ member });
+  },
+
+  async delete(request: FastifyRequest<{ Params: { memberId: string } }>, reply: FastifyReply) {
+    const result = await deleteMemberService(request.user.orgId, request.params.memberId, request.user.userId);
+    return reply.send(result);
   },
 
   async getActivity(request: FastifyRequest<{ Params: { memberId: string } }>, reply: FastifyReply) {

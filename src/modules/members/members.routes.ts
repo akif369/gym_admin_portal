@@ -13,6 +13,7 @@ export async function membersRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get('/:memberId', { preHandler: authAndView, schema: { tags: ['Members'], summary: 'Get member detail' } }, membersController.getOne);
   fastify.patch('/:memberId', { preHandler: authAndUpdate, schema: { tags: ['Members'], summary: 'Update member profile' } }, membersController.update);
   fastify.patch('/:memberId/status', { preHandler: authAndUpdate, schema: { tags: ['Members'], summary: 'Change member status' } }, membersController.updateStatus);
+  fastify.delete('/:memberId', { preHandler: authAndUpdate, schema: { tags: ['Members'], summary: 'Delete member' } }, membersController.delete);
   fastify.get('/:memberId/activity', { preHandler: authAndView, schema: { tags: ['Members'], summary: 'Member activity timeline' } }, membersController.getActivity);
   fastify.get('/:memberId/measurements', { preHandler: authAndView, schema: { tags: ['Members'], summary: 'Member measurement history' } }, membersController.getMeasurements);
   fastify.post('/:memberId/measurements', { preHandler: authAndCreate, schema: { tags: ['Members'], summary: 'Add body measurement' } }, membersController.addMeasurement);
