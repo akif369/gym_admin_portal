@@ -73,7 +73,10 @@ export async function loginService(
 
   // Check if organization is suspended
   const [org] = await db
-    .select({ status: organizations.status })
+    .select({ 
+      status: organizations.status,
+      organizationMode: organizations.organizationMode
+    })
     .from(organizations)
     .where(eq(organizations.id, user.organizationId))
     .limit(1);
@@ -185,7 +188,10 @@ export async function loginService(
 
   log.info({ userId: user.id, sessionId }, 'Login successful');
 
-  const portalType = getPortalType(user.role as UserRoleType);
+  let portalType = getPortalType(user.role as UserRoleType);
+  if (org?.organizationMode === 'SINGLE_GYM' && portalType === 'org-owner') {
+    portalType = 'branch';
+  }
 
   return {
     accessToken,
@@ -340,15 +346,20 @@ export async function getMeService(userId: string) {
       status: users.status,
       lastLoginAt: users.lastLoginAt,
       createdAt: users.createdAt,
+      organizationMode: organizations.organizationMode,
     })
     .from(users)
+    .leftJoin(organizations, eq(users.organizationId, organizations.id))
     .where(and(eq(users.id, userId), isNull(users.deletedAt)))
     .limit(1);
 
   if (!user) throw AppError.notFound(ErrorCode.STAFF_NOT_FOUND, 'User not found');
 
   const permissions = DEFAULT_ROLE_PERMISSIONS[user.role] ?? [];
-  const portalType = getPortalType(user.role as UserRoleType);
+  let portalType = getPortalType(user.role as UserRoleType);
+  if (user.organizationMode === 'SINGLE_GYM' && portalType === 'org-owner') {
+    portalType = 'branch';
+  }
 
   return {
     ...user,
