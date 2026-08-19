@@ -66,18 +66,19 @@ async function seed() {
     timezone: 'Asia/Kolkata',
   }).returning();
 
-  // ── 2. Branch ──────────────────────────────────────────────────────────────
-  log.info('Seeding branch...');
-  const [branch] = await db.insert(branches).values({
-    organizationId: org!.id,
-    name: 'Koramangala Branch',
-    address: '42, 5th Cross, Koramangala',
-    city: 'Bangalore',
-    phone: '080-12345678',
-    capacity: 150,
-    status: 'ACTIVE',
-    isMainBranch: true,
+  // ── 2. Branches ────────────────────────────────────────────────────────────
+  log.info('Seeding branches...');
+  const [branch1] = await db.insert(branches).values({
+    organizationId: org!.id, name: 'Koramangala Branch', address: '42, 5th Cross, Koramangala', city: 'Bangalore', phone: '080-12345678', capacity: 150, status: 'ACTIVE', isMainBranch: true,
   }).returning();
+  const [branch2] = await db.insert(branches).values({
+    organizationId: org!.id, name: 'Indiranagar Branch', address: '100 Feet Road, Indiranagar', city: 'Bangalore', phone: '080-87654321', capacity: 200, status: 'ACTIVE', isMainBranch: false,
+  }).returning();
+  const [branch3] = await db.insert(branches).values({
+    organizationId: org!.id, name: 'HSR Layout Branch', address: '27th Main Road, HSR', city: 'Bangalore', phone: '080-11223344', capacity: 100, status: 'ACTIVE', isMainBranch: false,
+  }).returning();
+  
+  const allBranches = [branch1!, branch2!, branch3!];
 
   // ── 3. Settings ────────────────────────────────────────────────────────────
   await db.insert(settings).values({
@@ -123,85 +124,37 @@ async function seed() {
   log.info('Seeding admin user...');
   const adminHash = await hashPw('Admin@123');
   const [admin] = await db.insert(users).values({
-    organizationId: org!.id,
-    branchId: branch!.id,
-    email: 'admin@ironzone.com',
-    passwordHash: adminHash,
-    role: 'OWNER',
-    firstName: 'Admin',
-    lastName: 'GymFlow',
-    phone: '9900000001',
-    status: 'ACTIVE',
+    organizationId: org!.id, branchId: branch1!.id, email: 'admin@ironzone.com', passwordHash: adminHash, role: 'OWNER', firstName: 'Admin', lastName: 'GymFlow', phone: '9900000001', status: 'ACTIVE',
   }).returning();
 
   // Manager
   const managerHash = await hashPw('Manager@123');
   const [manager] = await db.insert(users).values({
-    organizationId: org!.id,
-    branchId: branch!.id,
-    email: 'priya.k@ironzone.com',
-    passwordHash: managerHash,
-    role: 'MANAGER',
-    firstName: 'Priya',
-    lastName: 'Kapoor',
-    phone: '9900112233',
-    status: 'ACTIVE',
+    organizationId: org!.id, branchId: branch2!.id, email: 'priya.k@ironzone.com', passwordHash: managerHash, role: 'MANAGER', firstName: 'Priya', lastName: 'Kapoor', phone: '9900112233', status: 'ACTIVE',
   }).returning();
 
   // Receptionist
   const recepHash = await hashPw('Staff@123');
   await db.insert(users).values({
-    organizationId: org!.id,
-    branchId: branch!.id,
-    email: 'suresh.b@ironzone.com',
-    passwordHash: recepHash,
-    role: 'RECEPTIONIST',
-    firstName: 'Suresh',
-    lastName: 'Babu',
-    phone: '9900112244',
-    status: 'ACTIVE',
+    organizationId: org!.id, branchId: branch3!.id, email: 'suresh.b@ironzone.com', passwordHash: recepHash, role: 'RECEPTIONIST', firstName: 'Suresh', lastName: 'Babu', phone: '9900112244', status: 'ACTIVE',
   });
 
   // Branch Owner
   const boHash = await hashPw('Owner@123');
   await db.insert(users).values({
-    organizationId: org!.id,
-    branchId: branch!.id,
-    email: 'kora.owner@ironzone.com',
-    passwordHash: boHash,
-    role: 'BRANCH_OWNER',
-    firstName: 'Koramangala',
-    lastName: 'Owner',
-    phone: '9900112255',
-    status: 'ACTIVE',
+    organizationId: org!.id, branchId: branch1!.id, email: 'kora.owner@ironzone.com', passwordHash: boHash, role: 'BRANCH_OWNER', firstName: 'Koramangala', lastName: 'Owner', phone: '9900112255', status: 'ACTIVE',
   });
 
   // Sales Staff
   const salesHash = await hashPw('Sales@123');
   await db.insert(users).values({
-    organizationId: org!.id,
-    branchId: branch!.id,
-    email: 'sales@ironzone.com',
-    passwordHash: salesHash,
-    role: 'SALES_STAFF',
-    firstName: 'Neha',
-    lastName: 'Sales',
-    phone: '9900112266',
-    status: 'ACTIVE',
+    organizationId: org!.id, branchId: branch2!.id, email: 'sales@ironzone.com', passwordHash: salesHash, role: 'SALES_STAFF', firstName: 'Neha', lastName: 'Sales', phone: '9900112266', status: 'ACTIVE',
   });
 
   // Accountant
   const accHash = await hashPw('Accountant@123');
   await db.insert(users).values({
-    organizationId: org!.id,
-    branchId: branch!.id,
-    email: 'accounts@ironzone.com',
-    passwordHash: accHash,
-    role: 'ACCOUNTANT',
-    firstName: 'Raj',
-    lastName: 'Finance',
-    phone: '9900112277',
-    status: 'ACTIVE',
+    organizationId: org!.id, branchId: branch3!.id, email: 'accounts@ironzone.com', passwordHash: accHash, role: 'ACCOUNTANT', firstName: 'Raj', lastName: 'Finance', phone: '9900112277', status: 'ACTIVE',
   });
 
   // ── 6. Membership Plans ────────────────────────────────────────────────────
@@ -214,12 +167,14 @@ async function seed() {
 
   // ── 7. Trainers ────────────────────────────────────────────────────────────
   log.info('Seeding trainers...');
-  const [trainer1] = await db.insert(trainers).values({ organizationId: org!.id, branchId: branch!.id, name: 'Amit Singh', phone: '9988776655', specialization: 'Strength & Conditioning', certifications: 'ACE CPT, ISSA', shift: 'Morning (6AM - 2PM)', status: 'ACTIVE', joiningDate: '2022-06-01' }).returning();
-  const [trainer2] = await db.insert(trainers).values({ organizationId: org!.id, branchId: branch!.id, name: 'Neha Gupta', phone: '9988776644', specialization: 'Yoga & Flexibility', certifications: 'RYT 500, ACE', shift: 'Evening (2PM - 10PM)', status: 'ACTIVE', joiningDate: '2023-01-15' }).returning();
-  const [trainer3] = await db.insert(trainers).values({ organizationId: org!.id, branchId: branch!.id, name: 'Ravi Kumar', phone: '9988776633', specialization: 'CrossFit & Cardio', certifications: 'NASM CPT, CF-L1', shift: 'Morning (6AM - 2PM)', status: 'ON_LEAVE', joiningDate: '2021-09-01' }).returning();
+  const [trainer1] = await db.insert(trainers).values({ organizationId: org!.id, branchId: branch1!.id, name: 'Amit Singh', phone: '9988776655', specialization: 'Strength & Conditioning', certifications: 'ACE CPT, ISSA', shift: 'Morning (6AM - 2PM)', status: 'ACTIVE', joiningDate: '2022-06-01' }).returning();
+  const [trainer2] = await db.insert(trainers).values({ organizationId: org!.id, branchId: branch2!.id, name: 'Neha Gupta', phone: '9988776644', specialization: 'Yoga & Flexibility', certifications: 'RYT 500, ACE', shift: 'Evening (2PM - 10PM)', status: 'ACTIVE', joiningDate: '2023-01-15' }).returning();
+  const [trainer3] = await db.insert(trainers).values({ organizationId: org!.id, branchId: branch3!.id, name: 'Ravi Kumar', phone: '9988776633', specialization: 'CrossFit & Cardio', certifications: 'NASM CPT, CF-L1', shift: 'Morning (6AM - 2PM)', status: 'ON_LEAVE', joiningDate: '2021-09-01' }).returning();
 
   const trainerHash = await hashPw('Trainer@123');
-  await db.insert(users).values({ organizationId: org!.id, branchId: branch!.id, email: 'amit.trainer@ironzone.com', passwordHash: trainerHash, role: 'TRAINER', firstName: 'Amit', lastName: 'Singh', phone: '9988776655', status: 'ACTIVE' });
+  await db.insert(users).values({ organizationId: org!.id, branchId: branch1!.id, email: 'amit.trainer@ironzone.com', passwordHash: trainerHash, role: 'TRAINER', firstName: 'Amit', lastName: 'Singh', phone: '9988776655', status: 'ACTIVE' });
+  await db.insert(users).values({ organizationId: org!.id, branchId: branch2!.id, email: 'neha.trainer@ironzone.com', passwordHash: trainerHash, role: 'TRAINER', firstName: 'Neha', lastName: 'Gupta', phone: '9988776644', status: 'ACTIVE' });
+  await db.insert(users).values({ organizationId: org!.id, branchId: branch3!.id, email: 'ravi.trainer@ironzone.com', passwordHash: trainerHash, role: 'TRAINER', firstName: 'Ravi', lastName: 'Kumar', phone: '9988776633', status: 'ACTIVE' });
 
   // ── 8. Members ────────────────────────────────────────────────────────────
   log.info('Seeding members...');
@@ -236,9 +191,11 @@ async function seed() {
   const memberRows = [];
   for (let i = 0; i < memberData.length; i++) {
     const m = memberData[i]!;
+    const branchForMember = allBranches[i % allBranches.length]!;
+    
     const [member] = await db.insert(members).values({
       organizationId: org!.id,
-      branchId: branch!.id,
+      branchId: branchForMember.id,
       memberNumber: `GYM${String(i + 1).padStart(4, '0')}`,
       firstName: m.firstName,
       lastName: m.lastName,
@@ -259,7 +216,7 @@ async function seed() {
     // Create user login for the member
     await db.insert(users).values({
       organizationId: org!.id,
-      branchId: branch!.id,
+      branchId: branchForMember.id,
       email: m.email,
       passwordHash: memberHash,
       role: 'MEMBER',
@@ -296,16 +253,16 @@ async function seed() {
 
   // ── 11. Attendance ─────────────────────────────────────────────────────────
   log.info('Seeding attendance...');
-  await db.insert(attendanceLogs).values({ organizationId: org!.id, branchId: branch!.id, memberId: memberRows[0]!.id, memberName: 'Rahul Sharma', checkInAt: subHours(today, 2), checkOutAt: subHours(today, 0.5), checkInMethod: 'MANUAL', checkInBy: admin!.id });
-  await db.insert(attendanceLogs).values({ organizationId: org!.id, branchId: branch!.id, memberId: memberRows[2]!.id, memberName: 'Arjun Verma', checkInAt: subHours(today, 3), checkOutAt: subHours(today, 0.5), checkInMethod: 'MANUAL', checkInBy: admin!.id });
-  await db.insert(attendanceLogs).values({ organizationId: org!.id, branchId: branch!.id, memberId: memberRows[4]!.id, memberName: 'Vikram Nair', checkInAt: subHours(today, 1), checkOutAt: null, checkInMethod: 'MANUAL', checkInBy: admin!.id });
-  await db.insert(attendanceLogs).values({ organizationId: org!.id, branchId: branch!.id, memberId: memberRows[1]!.id, memberName: 'Priya Mehta', checkInAt: subDays(subHours(today, 2), 1), checkOutAt: subDays(subHours(today, 0.5), 1), checkInMethod: 'MANUAL' });
+  await db.insert(attendanceLogs).values({ organizationId: org!.id, branchId: branch1!.id, memberId: memberRows[0]!.id, memberName: 'Rahul Sharma', checkInAt: subHours(today, 2), checkOutAt: subHours(today, 0.5), checkInMethod: 'MANUAL', checkInBy: admin!.id });
+  await db.insert(attendanceLogs).values({ organizationId: org!.id, branchId: branch1!.id, memberId: memberRows[2]!.id, memberName: 'Arjun Verma', checkInAt: subHours(today, 3), checkOutAt: subHours(today, 0.5), checkInMethod: 'MANUAL', checkInBy: admin!.id });
+  await db.insert(attendanceLogs).values({ organizationId: org!.id, branchId: branch1!.id, memberId: memberRows[4]!.id, memberName: 'Vikram Nair', checkInAt: subHours(today, 1), checkOutAt: null, checkInMethod: 'MANUAL', checkInBy: admin!.id });
+  await db.insert(attendanceLogs).values({ organizationId: org!.id, branchId: branch1!.id, memberId: memberRows[1]!.id, memberName: 'Priya Mehta', checkInAt: subDays(subHours(today, 2), 1), checkOutAt: subDays(subHours(today, 0.5), 1), checkInMethod: 'MANUAL' });
 
   // ── 12. Payments ───────────────────────────────────────────────────────────
   log.info('Seeding payments...');
-  await db.insert(paymentTransactions).values({ organizationId: org!.id, branchId: branch!.id, memberId: memberRows[0]!.id, memberName: 'Rahul Sharma', amount: '2500', gstAmount: '450', totalAmount: '2950', paymentMethod: 'UPI', status: 'PAID', referenceId: 'UPI20260701A', description: 'Monthly Pro membership', recordedBy: admin!.id, paidAt: new Date('2026-07-01') });
-  await db.insert(paymentTransactions).values({ organizationId: org!.id, branchId: branch!.id, memberId: memberRows[2]!.id, memberName: 'Arjun Verma', amount: '18000', gstAmount: '3240', totalAmount: '21240', paymentMethod: 'CASH', status: 'PAID', description: 'Yearly Platinum membership', recordedBy: admin!.id, paidAt: new Date('2025-11-10') });
-  await db.insert(paymentTransactions).values({ organizationId: org!.id, branchId: branch!.id, memberId: memberRows[1]!.id, memberName: 'Priya Mehta', amount: '6500', gstAmount: '1170', totalAmount: '7670', paymentMethod: 'CARD', status: 'PENDING', referenceId: 'CARD20260709B', description: 'Quarterly Gold membership', recordedBy: admin!.id });
+  await db.insert(paymentTransactions).values({ organizationId: org!.id, branchId: branch1!.id, memberId: memberRows[0]!.id, memberName: 'Rahul Sharma', amount: '2500', gstAmount: '450', totalAmount: '2950', paymentMethod: 'UPI', status: 'PAID', referenceId: 'UPI20260701A', description: 'Monthly Pro membership', recordedBy: admin!.id, paidAt: new Date('2026-07-01') });
+  await db.insert(paymentTransactions).values({ organizationId: org!.id, branchId: branch1!.id, memberId: memberRows[2]!.id, memberName: 'Arjun Verma', amount: '18000', gstAmount: '3240', totalAmount: '21240', paymentMethod: 'CASH', status: 'PAID', description: 'Yearly Platinum membership', recordedBy: admin!.id, paidAt: new Date('2025-11-10') });
+  await db.insert(paymentTransactions).values({ organizationId: org!.id, branchId: branch1!.id, memberId: memberRows[1]!.id, memberName: 'Priya Mehta', amount: '6500', gstAmount: '1170', totalAmount: '7670', paymentMethod: 'CARD', status: 'PENDING', referenceId: 'CARD20260709B', description: 'Quarterly Gold membership', recordedBy: admin!.id });
 
   // ── 13. PT Packages ────────────────────────────────────────────────────────
   log.info('Seeding PT packages and sessions...');
@@ -319,12 +276,12 @@ async function seed() {
 
   // ── 14. Leads ──────────────────────────────────────────────────────────────
   log.info('Seeding leads...');
-  const [lead1] = await db.insert(leads).values({ organizationId: org!.id, branchId: branch!.id, name: 'Sanjay Kumar', phone: '9876500001', source: 'INSTAGRAM', status: 'TRIAL_BOOKED', notes: 'Interested in weight loss program', createdBy: admin!.id }).returning();
+  const [lead1] = await db.insert(leads).values({ organizationId: org!.id, branchId: branch1!.id, name: 'Sanjay Kumar', phone: '9876500001', source: 'INSTAGRAM', status: 'TRIAL_BOOKED', notes: 'Interested in weight loss program', createdBy: admin!.id }).returning();
   await db.insert(leadActivities).values({ leadId: lead1!.id, activityType: 'CALL', notes: 'Called and scheduled trial session', actorId: admin!.id, actorName: 'Admin' });
-  await db.insert(leads).values({ organizationId: org!.id, branchId: branch!.id, name: 'Meena Pillai', phone: '9876500002', source: 'WALK_IN', status: 'CONTACTED', notes: 'Came in for pricing info', createdBy: admin!.id });
-  await db.insert(leads).values({ organizationId: org!.id, branchId: branch!.id, name: 'Rohan Das', phone: '9876500003', source: 'GOOGLE', status: 'JOINED', notes: 'Converted to Quarterly Gold', createdBy: admin!.id });
-  await db.insert(leads).values({ organizationId: org!.id, branchId: branch!.id, name: 'Aisha Khan', phone: '9876500004', source: 'REFERRAL', status: 'TRIAL_COMPLETED', notes: 'Referred by Arjun Verma', createdBy: admin!.id });
-  await db.insert(leads).values({ organizationId: org!.id, branchId: branch!.id, name: 'Dev Anand', phone: '9876500005', source: 'WHATSAPP', status: 'NEW_LEAD', notes: 'Messaged about membership plans', createdBy: admin!.id });
+  await db.insert(leads).values({ organizationId: org!.id, branchId: branch2!.id, name: 'Meena Pillai', phone: '9876500002', source: 'WALK_IN', status: 'CONTACTED', notes: 'Came in for pricing info', createdBy: admin!.id });
+  await db.insert(leads).values({ organizationId: org!.id, branchId: branch3!.id, name: 'Rohan Das', phone: '9876500003', source: 'GOOGLE', status: 'JOINED', notes: 'Converted to Quarterly Gold', createdBy: admin!.id });
+  await db.insert(leads).values({ organizationId: org!.id, branchId: branch1!.id, name: 'Aisha Khan', phone: '9876500004', source: 'REFERRAL', status: 'TRIAL_COMPLETED', notes: 'Referred by Arjun Verma', createdBy: admin!.id });
+  await db.insert(leads).values({ organizationId: org!.id, branchId: branch2!.id, name: 'Dev Anand', phone: '9876500005', source: 'WHATSAPP', status: 'NEW_LEAD', notes: 'Messaged about membership plans', createdBy: admin!.id });
 
   // ── 15. Exercise Library ───────────────────────────────────────────────────
   log.info('Seeding exercises...');
