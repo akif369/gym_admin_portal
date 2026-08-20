@@ -101,13 +101,33 @@ export async function listMembersService(orgId: string, query: Record<string, un
   }
 
   if (membershipStatus) {
-    conditions.push(sql`(
-      SELECT ${sql.identifier('member_memberships')}.${sql.identifier('status')}
-      FROM ${sql.identifier('member_memberships')}
-      WHERE ${sql.identifier('member_memberships')}.${sql.identifier('member_id')} = ${sql.identifier('members')}.${sql.identifier('id')}
-      ORDER BY ${sql.identifier('member_memberships')}.${sql.identifier('created_at')} DESC
-      LIMIT 1
-    ) = ${membershipStatus}`);
+    if (membershipStatus === 'INACTIVE') {
+      conditions.push(
+        or(
+          eq(members.status, 'INACTIVE'),
+          sql`(
+            SELECT count(*)
+            FROM ${sql.identifier('member_memberships')}
+            WHERE ${sql.identifier('member_memberships')}.${sql.identifier('member_id')} = ${sql.identifier('members')}.${sql.identifier('id')}
+          ) = 0`,
+          sql`(
+            SELECT ${sql.identifier('member_memberships')}.${sql.identifier('status')}
+            FROM ${sql.identifier('member_memberships')}
+            WHERE ${sql.identifier('member_memberships')}.${sql.identifier('member_id')} = ${sql.identifier('members')}.${sql.identifier('id')}
+            ORDER BY ${sql.identifier('member_memberships')}.${sql.identifier('created_at')} DESC
+            LIMIT 1
+          ) = 'CANCELLED'`
+        )
+      );
+    } else {
+      conditions.push(sql`(
+        SELECT ${sql.identifier('member_memberships')}.${sql.identifier('status')}
+        FROM ${sql.identifier('member_memberships')}
+        WHERE ${sql.identifier('member_memberships')}.${sql.identifier('member_id')} = ${sql.identifier('members')}.${sql.identifier('id')}
+        ORDER BY ${sql.identifier('member_memberships')}.${sql.identifier('created_at')} DESC
+        LIMIT 1
+      ) = ${membershipStatus}`);
+    }
   }
 
   const whereClause = and(...conditions);
