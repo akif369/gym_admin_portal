@@ -3,9 +3,9 @@ import { attendanceLogs } from '../../db/schema/attendance.schema';
 import { members } from '../../db/schema/members.schema';
 import { memberMemberships } from '../../db/schema/memberships.schema';
 import { paymentTransactions } from '../../db/schema/payments.schema';
-import { eq, and, isNull, desc, count, sql, gte, lte, lt, gt, between } from 'drizzle-orm';
+import { eq, and, or, isNull, desc, count, sql, gte, lte, lt, gt, between } from 'drizzle-orm';
 import { AppError, ErrorCode } from '../../common/errors/AppError';
-import { parsePagination, paginationToLimitOffset, buildPaginatedResponse } from '../../common/pagination/paginate';
+import { parseCursorPagination, decodeCursor, buildCursorPaginatedResponse } from '../../common/pagination/paginate';
 import { auditLog } from '../../common/audit/auditLog';
 import { AuditAction } from '../../db/schema/audit.schema';
 import { createLogger } from '../../common/logger/index';
@@ -193,14 +193,11 @@ export async function getCurrentlyInsideService(orgId: string) {
 // ── List Attendance ───────────────────────────────────────────────────────────
 
 export async function listAttendanceService(orgId: string, query: Record<string, unknown>) {
-  const { page, pageSize } = parsePagination(query);
-  const { limit, offset } = paginationToLimitOffset({ page, pageSize });
-
+  const { cursor, pageSize } = parseCursorPagination(query);
   const conditions: any[] = [eq(attendanceLogs.organizationId, orgId)];
 
   if (query['date']) {
     const date = query['date'] as string;
-    // Convert IST calendar day boundaries to UTC for the DB query
     conditions.push(gte(attendanceLogs.checkInAt, istDayStart(date)), lte(attendanceLogs.checkInAt, istDayEnd(date)));
   }
 
@@ -208,20 +205,30 @@ export async function listAttendanceService(orgId: string, query: Record<string,
     conditions.push(eq(attendanceLogs.memberId, query['memberId'] as string));
   }
 
-  const whereClause = and(...conditions);
+  const decodedCursor = decodeCursor<[string, string]>(cursor);
+  if (decodedCursor) {
+    const [cursorDate, cursorId] = decodedCursor;
+    conditions.push(
+      or(
+        lt(attendanceLogs.checkInAt, new Date(cursorDate)),
+        and(eq(attendanceLogs.checkInAt, new Date(cursorDate)), lt(attendanceLogs.id, cursorId))
+      )
+    );
+  }
 
-  const totalRes = await db.select({ total: count() }).from(attendanceLogs).where(whereClause);
-  const total = totalRes[0]?.total ?? 0;
+  const whereClause = and(...conditions);
 
   const items = await db
     .select()
     .from(attendanceLogs)
     .where(whereClause)
-    .orderBy(desc(attendanceLogs.checkInAt))
-    .limit(limit)
-    .offset(offset);
+    .orderBy(desc(attendanceLogs.checkInAt), desc(attendanceLogs.id))
+    .limit(pageSize + 1);
 
-  return buildPaginatedResponse(items, total ?? 0, { page, pageSize });
+  return buildCursorPaginatedResponse(items, pageSize, (item) => [
+    item.checkInAt.toISOString(),
+    item.id,
+  ]);
 }
 
 // ── Member Attendance History ─────────────────────────────────────────────────
@@ -232,24 +239,34 @@ export async function getMemberAttendanceService(orgId: string, memberId: string
     .limit(1);
   if (!member) throw AppError.notFound(ErrorCode.MEMBER_NOT_FOUND, 'Member not found');
 
-  const { page, pageSize } = parsePagination(query);
-  const { limit, offset } = paginationToLimitOffset({ page, pageSize });
+  const { cursor, pageSize } = parseCursorPagination(query);
+  const conditions: any[] = [
+    eq(attendanceLogs.memberId, memberId),
+    eq(attendanceLogs.organizationId, orgId)
+  ];
 
-  const totalRes = await db
-    .select({ total: count() })
-    .from(attendanceLogs)
-    .where(and(eq(attendanceLogs.memberId, memberId), eq(attendanceLogs.organizationId, orgId)));
-  const total = totalRes[0]?.total ?? 0;
+  const decodedCursor = decodeCursor<[string, string]>(cursor);
+  if (decodedCursor) {
+    const [cursorDate, cursorId] = decodedCursor;
+    conditions.push(
+      or(
+        lt(attendanceLogs.checkInAt, new Date(cursorDate)),
+        and(eq(attendanceLogs.checkInAt, new Date(cursorDate)), lt(attendanceLogs.id, cursorId))
+      )
+    );
+  }
 
   const items = await db
     .select()
     .from(attendanceLogs)
-    .where(and(eq(attendanceLogs.memberId, memberId), eq(attendanceLogs.organizationId, orgId)))
-    .orderBy(desc(attendanceLogs.checkInAt))
-    .limit(limit)
-    .offset(offset);
+    .where(and(...conditions))
+    .orderBy(desc(attendanceLogs.checkInAt), desc(attendanceLogs.id))
+    .limit(pageSize + 1);
 
-  return buildPaginatedResponse(items, total ?? 0, { page, pageSize });
+  return buildCursorPaginatedResponse(items, pageSize, (item) => [
+    item.checkInAt.toISOString(),
+    item.id,
+  ]);
 }
 
 // ── Correct Attendance ─────────────────────────────────────────────────────────

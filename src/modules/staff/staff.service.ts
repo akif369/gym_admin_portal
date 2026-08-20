@@ -2,9 +2,9 @@ import * as argon2 from 'argon2';
 import { db } from '../../db/index';
 import { users, userSessions, userPermissions, roles, staffInviteTokens, passwordResetTokens } from '../../db/schema/index';
 import { staffAuditLogs } from '../../db/schema/audit.schema';
-import { eq, and, isNull, ilike, desc, or, sql, count, ne } from 'drizzle-orm';
+import { eq, and, isNull, ilike, desc, or, sql, count, ne, lt } from 'drizzle-orm';
 import { AppError, ErrorCode } from '../../common/errors/AppError';
-import { parsePagination, paginationToLimitOffset, buildPaginatedResponse } from '../../common/pagination/paginate';
+import { parseCursorPagination, decodeCursor, buildCursorPaginatedResponse, parsePagination, paginationToLimitOffset, buildPaginatedResponse } from '../../common/pagination/paginate';
 import { auditLog } from '../../common/audit/auditLog';
 import { AuditAction } from '../../db/schema/audit.schema';
 import { DEFAULT_ROLE_PERMISSIONS } from '../../db/schema/rbac.schema';
@@ -314,24 +314,32 @@ export async function getRolesService(orgId: string) {
 // ── Get Audit Logs ────────────────────────────────────────────────────────────
 
 export async function getAuditLogsService(orgId: string, query: Record<string, unknown>) {
-  const { page, pageSize } = parsePagination(query);
-  const { limit, offset } = paginationToLimitOffset({ page, pageSize });
+  const { cursor, pageSize } = parseCursorPagination(query);
 
-  const totalRes = await db
-    .select({ total: count() })
-    .from(staffAuditLogs)
-    .where(eq(staffAuditLogs.organizationId, orgId));
-  const total = totalRes[0]?.total ?? 0;
+  const conditions: any[] = [eq(staffAuditLogs.organizationId, orgId)];
+
+  const decodedCursor = decodeCursor<[string, string]>(cursor);
+  if (decodedCursor) {
+    const [cursorDate, cursorId] = decodedCursor;
+    conditions.push(
+      or(
+        lt(staffAuditLogs.createdAt, new Date(cursorDate)),
+        and(eq(staffAuditLogs.createdAt, new Date(cursorDate)), lt(staffAuditLogs.id, cursorId))
+      )
+    );
+  }
 
   const items = await db
     .select()
     .from(staffAuditLogs)
-    .where(eq(staffAuditLogs.organizationId, orgId))
-    .orderBy(desc(staffAuditLogs.createdAt))
-    .limit(limit)
-    .offset(offset);
+    .where(and(...conditions))
+    .orderBy(desc(staffAuditLogs.createdAt), desc(staffAuditLogs.id))
+    .limit(pageSize + 1);
 
-  return buildPaginatedResponse(items, total ?? 0, { page, pageSize });
+  return buildCursorPaginatedResponse(items, pageSize, (item) => [
+    item.createdAt.toISOString(),
+    item.id,
+  ]);
 }
 
 // ── Invite Staff ──────────────────────────────────────────────────────────────

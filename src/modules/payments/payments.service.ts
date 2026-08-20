@@ -3,9 +3,9 @@ import {
   paymentTransactions, invoices, invoiceLineItems, refunds, reportExports,
 } from '../../db/schema/payments.schema';
 import { members } from '../../db/schema/members.schema';
-import { eq, and, isNull, desc, count, sum, sql, gte, lte, or, ilike } from 'drizzle-orm';
+import { eq, and, isNull, desc, count, sum, sql, gte, lte, lt, or, ilike } from 'drizzle-orm';
 import { AppError, ErrorCode } from '../../common/errors/AppError';
-import { parsePagination, paginationToLimitOffset, buildPaginatedResponse } from '../../common/pagination/paginate';
+import { parseCursorPagination, decodeCursor, buildCursorPaginatedResponse } from '../../common/pagination/paginate';
 import { auditLog } from '../../common/audit/auditLog';
 import { AuditAction } from '../../db/schema/audit.schema';
 import { createLogger } from '../../common/logger/index';
@@ -59,33 +59,49 @@ export async function generateInvoicePdfBuffer(invoice: Awaited<ReturnType<typeo
 // ── List Payments ─────────────────────────────────────────────────────────────
 
 export async function listPaymentsService(orgId: string, query: Record<string, unknown>) {
-  const { page, pageSize } = parsePagination(query);
-  const { limit, offset } = paginationToLimitOffset({ page, pageSize });
+  const { cursor, pageSize } = parseCursorPagination(query);
 
   const conditions: any[] = [eq(paymentTransactions.organizationId, orgId)];
 
+  if (query['branchId']) conditions.push(eq(paymentTransactions.branchId, query['branchId'] as string));
   if (query['memberId']) conditions.push(eq(paymentTransactions.memberId, query['memberId'] as string));
   if (query['status']) conditions.push(eq(paymentTransactions.status, query['status'] as any));
-  if (query['dateFrom']) conditions.push(gte(paymentTransactions.createdAt, new Date(query['dateFrom'] as string)));
-  if (query['dateTo']) conditions.push(lte(paymentTransactions.createdAt, new Date(query['dateTo'] as string)));
-  if (typeof query['search'] === 'string' && query['search'].trim()) {
-    const term = `%${query['search'].trim().slice(0, 100).replace(/[\\%_]/g, '\\$&')}%`;
+  if (query['startDate'] && query['endDate']) {
+    conditions.push(
+      gte(paymentTransactions.createdAt, new Date(query['startDate'] as string)),
+      lte(paymentTransactions.createdAt, new Date(query['endDate'] as string)),
+    );
+  }
+  if (query['q']) {
+    const term = `%${query['q']}%`;
     conditions.push(or(
-      ilike(paymentTransactions.referenceId!, term),
       ilike(paymentTransactions.memberName!, term),
       ilike(paymentTransactions.description!, term),
       sql`CAST(${paymentTransactions.id} AS TEXT) ILIKE ${term}`,
     ));
   }
 
+  const decodedCursor = decodeCursor<[string, string]>(cursor);
+  if (decodedCursor) {
+    const [cursorDate, cursorId] = decodedCursor;
+    conditions.push(
+      or(
+        lt(paymentTransactions.createdAt, new Date(cursorDate)),
+        and(eq(paymentTransactions.createdAt, new Date(cursorDate)), lt(paymentTransactions.id, cursorId))
+      )
+    );
+  }
+
   const whereClause = and(...conditions);
 
-  const totalRes = await db.select({ total: count() }).from(paymentTransactions).where(whereClause);
-  const total = totalRes[0]?.total ?? 0;
   const items = await db.select().from(paymentTransactions).where(whereClause)
-    .orderBy(desc(paymentTransactions.createdAt)).limit(limit).offset(offset);
+    .orderBy(desc(paymentTransactions.createdAt), desc(paymentTransactions.id))
+    .limit(pageSize + 1);
 
-  return buildPaginatedResponse(items, total ?? 0, { page, pageSize });
+  return buildCursorPaginatedResponse(items, pageSize, (item) => [
+    item.createdAt.toISOString(),
+    item.id,
+  ]);
 }
 
 // ── Record Payment ────────────────────────────────────────────────────────────
@@ -231,15 +247,38 @@ export async function refundPaymentService(
 // ── Invoices ──────────────────────────────────────────────────────────────────
 
 export async function listInvoicesService(orgId: string, query: Record<string, unknown>) {
-  const { page, pageSize } = parsePagination(query);
-  const { limit, offset } = paginationToLimitOffset({ page, pageSize });
+  const { cursor, pageSize } = parseCursorPagination(query);
 
-  const totalRes = await db.select({ total: count() }).from(invoices).where(eq(invoices.organizationId, orgId));
-  const total = totalRes[0]?.total ?? 0;
-  const items = await db.select().from(invoices).where(eq(invoices.organizationId, orgId))
-    .orderBy(desc(invoices.createdAt)).limit(limit).offset(offset);
+  const conditions: any[] = [eq(invoices.organizationId, orgId)];
 
-  return buildPaginatedResponse(items.map(invoice => ({ ...invoice, publicViewUrl: invoiceViewUrl(invoice.publicToken) })), total ?? 0, { page, pageSize });
+  const decodedCursor = decodeCursor<[string, string]>(cursor);
+  if (decodedCursor) {
+    const [cursorDate, cursorId] = decodedCursor;
+    conditions.push(
+      or(
+        lt(invoices.createdAt, new Date(cursorDate)),
+        and(eq(invoices.createdAt, new Date(cursorDate)), lt(invoices.id, cursorId))
+      )
+    );
+  }
+
+  const items = await db.select().from(invoices)
+    .where(and(...conditions))
+    .orderBy(desc(invoices.createdAt), desc(invoices.id))
+    .limit(pageSize + 1);
+
+  const paginatedResponse = buildCursorPaginatedResponse(items, pageSize, (item) => [
+    item.createdAt.toISOString(),
+    item.id,
+  ]);
+
+  return {
+    ...paginatedResponse,
+    data: paginatedResponse.data.map(invoice => ({
+      ...invoice,
+      publicViewUrl: invoiceViewUrl(invoice.publicToken)
+    }))
+  };
 }
 
 export async function generateInvoiceService(
@@ -471,13 +510,28 @@ export async function getMemberPaymentsService(orgId: string, memberId: string, 
     .limit(1);
   if (!member) throw AppError.notFound(ErrorCode.MEMBER_NOT_FOUND, 'Member not found');
 
-  const { page, pageSize } = parsePagination(query);
-  const { limit, offset } = paginationToLimitOffset({ page, pageSize });
+  const { cursor, pageSize } = parseCursorPagination(query);
 
-  const totalRes = await db.select({ total: count() }).from(paymentTransactions).where(eq(paymentTransactions.memberId, memberId));
-  const total = totalRes[0]?.total ?? 0;
-  const items = await db.select().from(paymentTransactions).where(eq(paymentTransactions.memberId, memberId))
-    .orderBy(desc(paymentTransactions.createdAt)).limit(limit).offset(offset);
+  const conditions: any[] = [eq(paymentTransactions.memberId, memberId)];
 
-  return buildPaginatedResponse(items, total ?? 0, { page, pageSize });
+  const decodedCursor = decodeCursor<[string, string]>(cursor);
+  if (decodedCursor) {
+    const [cursorDate, cursorId] = decodedCursor;
+    conditions.push(
+      or(
+        lt(paymentTransactions.createdAt, new Date(cursorDate)),
+        and(eq(paymentTransactions.createdAt, new Date(cursorDate)), lt(paymentTransactions.id, cursorId))
+      )
+    );
+  }
+
+  const items = await db.select().from(paymentTransactions)
+    .where(and(...conditions))
+    .orderBy(desc(paymentTransactions.createdAt), desc(paymentTransactions.id))
+    .limit(pageSize + 1);
+
+  return buildCursorPaginatedResponse(items, pageSize, (item) => [
+    item.createdAt.toISOString(),
+    item.id,
+  ]);
 }
