@@ -72,7 +72,10 @@ export const config = {
   appName: optionalEnv('APP_NAME', 'GymFlow'),
   apiPrefix: optionalEnv('API_PREFIX', '/api/v1'),
   publicApiUrl: optionalEnv('PUBLIC_API_URL', `http://localhost:${optionalEnvNumber('PORT', 3001)}`).replace(/\/$/, ''),
-  publicWebUrl: optionalEnv('PUBLIC_WEB_URL', optionalEnv('CORS_ORIGIN', 'http://localhost:3000').split(',')[0].trim()).replace(/\/$/, ''),
+publicWebUrl: optionalEnv(
+  'PUBLIC_WEB_URL',
+  (optionalEnv('CORS_ORIGIN', 'http://localhost:3000').split(',')[0] ?? 'http://localhost:3000').trim()
+).replace(/\/$/, ''),
 
   // ── Database ─────────────────────────────────────────────────
   databaseUrl: requireEnv('DATABASE_URL'),
