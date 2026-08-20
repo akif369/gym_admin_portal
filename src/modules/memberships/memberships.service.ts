@@ -2,7 +2,7 @@ import { addDays, parseISO } from 'date-fns';
 import { db } from '../../db/index';
 import { membershipPlans, memberMemberships, membershipEvents } from '../../db/schema/memberships.schema';
 import { members } from '../../db/schema/members.schema';
-import { eq, and, isNull, desc, asc, count, sql, lt, ne } from 'drizzle-orm';
+import { eq, and, isNull, desc, asc, count, sql, lt, ne, inArray } from 'drizzle-orm';
 import { AppError, ErrorCode } from '../../common/errors/AppError';
 import { parsePagination, paginationToLimitOffset, buildPaginatedResponse } from '../../common/pagination/paginate';
 import { auditLog } from '../../common/audit/auditLog';
@@ -528,13 +528,26 @@ export async function sweepInactiveMembersService() {
         isNull(members.deletedAt)
       ));
 
+    if (sweepCandidates.length === 0) continue;
+
+    // Batch fetch all memberships to eliminate N+1 queries (production grade)
+    const candidateIds = sweepCandidates.map(m => m.id);
+    const allPlans = await db
+      .select({ memberId: memberMemberships.memberId, status: memberMemberships.status, endDate: memberMemberships.endDate })
+      .from(memberMemberships)
+      .where(inArray(memberMemberships.memberId, candidateIds));
+
+    // Group memberships in memory by memberId
+    const plansByMember = new Map<string, typeof allPlans>();
+    for (const plan of allPlans) {
+      if (!plansByMember.has(plan.memberId)) plansByMember.set(plan.memberId, []);
+      plansByMember.get(plan.memberId)!.push(plan);
+    }
+
     for (const member of sweepCandidates) {
-      // Get all memberships for this member
-      const memberPlans = await db
-        .select()
-        .from(memberMemberships)
-        .where(eq(memberMemberships.memberId, member.id))
-        .orderBy(desc(memberMemberships.endDate));
+      // Get plans for this member and sort descending by endDate
+      const memberPlans = plansByMember.get(member.id) || [];
+      memberPlans.sort((a, b) => b.endDate.localeCompare(a.endDate));
 
       const hasActive = memberPlans.some(p => p.status === 'ACTIVE' || p.status === 'FROZEN');
       const latestPlan = memberPlans[0];
