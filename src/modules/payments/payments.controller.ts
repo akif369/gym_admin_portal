@@ -38,6 +38,10 @@ export const paymentsController = {
     reply.type('text/html; charset=utf-8');
     return reply.send(renderInvoiceHtml(invoice));
   },
+  async getPublicInvoiceData(request: FastifyRequest<{ Params: { publicToken: string } }>, reply: FastifyReply) {
+    const invoice = await getPublicInvoiceService(request.params.publicToken);
+    return reply.send({ invoice });
+  },
   async getInvoicePdf(request: FastifyRequest<{ Params: { invoiceId: string } }>, reply: FastifyReply) {
     const invoice = await getInvoiceService(request.user.orgId, request.params.invoiceId);
     const html = `<!DOCTYPE html><html><body><h1>Invoice ${invoice.invoiceNumber}</h1><p>Total: ₹${invoice.totalAmount}</p>${invoice.lineItems.map(li => `<p>${li.description}: ₹${li.totalAmount}</p>`).join('')}</body></html>`;

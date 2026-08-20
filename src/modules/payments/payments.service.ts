@@ -30,7 +30,7 @@ async function generateInvoiceNumber(orgId: string, prefix: string): Promise<str
 }
 
 function invoiceViewUrl(token: string) {
-  return `${config.publicApiUrl}${config.apiPrefix}/invoices/public/${token}`;
+  return `${config.publicWebUrl}/invoice/${token}`;
 }
 
 function roundMoney(amount: number): number {
