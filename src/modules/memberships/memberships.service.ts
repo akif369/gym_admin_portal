@@ -518,18 +518,17 @@ export async function sweepInactiveMembersService() {
     cutoffDate.setDate(cutoffDate.getDate() - daysBeforeInactive);
     const cutoffString = cutoffDate.toISOString().split('T')[0]!;
 
-    // Find members in this org who are not currently INACTIVE or ARCHIVED
-    const activeMembers = await db
-      .select({ id: members.id })
+    // Find members in this org who are not ARCHIVED
+    const sweepCandidates = await db
+      .select({ id: members.id, status: members.status })
       .from(members)
       .where(and(
         eq(members.organizationId, org.id),
-        ne(members.status, 'INACTIVE'),
         ne(members.status, 'ARCHIVED'),
         isNull(members.deletedAt)
       ));
 
-    for (const member of activeMembers) {
+    for (const member of sweepCandidates) {
       // Get all memberships for this member
       const memberPlans = await db
         .select()
@@ -537,14 +536,15 @@ export async function sweepInactiveMembersService() {
         .where(eq(memberMemberships.memberId, member.id))
         .orderBy(desc(memberMemberships.endDate));
 
-      // If they have any ACTIVE or FROZEN membership, skip
-      if (memberPlans.some(p => p.status === 'ACTIVE' || p.status === 'FROZEN')) continue;
-
-      // Find the latest membership
+      const hasActive = memberPlans.some(p => p.status === 'ACTIVE' || p.status === 'FROZEN');
       const latestPlan = memberPlans[0];
-      if (!latestPlan) continue; // no memberships at all? Leave them active or handle otherwise
+      
+      let shouldBeInactive = false;
+      if (!hasActive && latestPlan && ['EXPIRED', 'CANCELLED'].includes(latestPlan.status) && latestPlan.endDate < cutoffString) {
+        shouldBeInactive = true;
+      }
 
-      if (latestPlan.status === 'EXPIRED' && latestPlan.endDate < cutoffString) {
+      if (shouldBeInactive && member.status !== 'INACTIVE') {
         // Mark member as INACTIVE
         await db.update(members)
           .set({ status: 'INACTIVE', updatedAt: new Date() })
@@ -557,6 +557,19 @@ export async function sweepInactiveMembersService() {
           entityType: 'member',
           entityId: member.id,
           description: `Member status updated to INACTIVE due to ${daysBeforeInactive} days of expiry`,
+        });
+      } else if (!shouldBeInactive && member.status === 'INACTIVE') {
+        // Revert member back to ACTIVE 
+        await db.update(members)
+          .set({ status: 'ACTIVE', updatedAt: new Date() })
+          .where(eq(members.id, member.id));
+        
+        await auditLog({
+          organizationId: org.id,
+          action: AuditAction.MEMBER_UPDATED,
+          entityType: 'member',
+          entityId: member.id,
+          description: `Member status reverted to ACTIVE (no longer meets ${daysBeforeInactive} days expiry threshold)`,
         });
       }
     }
