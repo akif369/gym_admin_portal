@@ -6,13 +6,13 @@ export interface PaginationParams {
 }
 
 export interface PaginatedResult<T> {
-  items: T[];
-  page: number;
-  pageSize: number;
-  total: number;
-  totalPages: number;
-  hasNext: boolean;
-  hasPrev: boolean;
+  data: T[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 // ── Parse pagination query params ────────────────────────────────────────────
@@ -48,18 +48,18 @@ export function paginationToLimitOffset(params: PaginationParams): {
 // ── Build paginated response ──────────────────────────────────────────────────
 
 export function buildPaginatedResponse<T>(
-  items: T[],
+  data: T[],
   total: number,
   params: PaginationParams,
 ): PaginatedResult<T> {
   const totalPages = Math.ceil(total / params.pageSize);
   return {
-    items,
-    page: params.page,
-    pageSize: params.pageSize,
-    total,
-    totalPages,
-    hasNext: params.page < totalPages,
-    hasPrev: params.page > 1,
+    data,
+    pagination: {
+      page: params.page,
+      pageSize: params.pageSize,
+      total,
+      totalPages,
+    },
   };
 }
