@@ -125,8 +125,9 @@ async function emitEvent(
   actorName?: string,
   notes?: string,
   metadata?: unknown,
+  tx: any = db,
 ) {
-  await db.insert(membershipEvents).values({
+  await tx.insert(membershipEvents).values({
     membershipId,
     memberId,
     eventType,
@@ -409,32 +410,37 @@ export async function renewMembershipService(
     : new Date();
   const newEndDate = addDays(newStartDate, plan.durationDays);
 
-  const [membership] = await db
-    .insert(memberMemberships)
-    .values({
-      memberId,
-      planId: plan.id,
-      planName: plan.name,
-      startDate: newStartDate.toISOString().split('T')[0],
-      endDate: newEndDate.toISOString().split('T')[0],
-      status: 'ACTIVE',
-      ptSessionsTotal: plan.ptSessionsIncluded,
-      ...(data.notes ? { notes: data.notes } : {}),
-      ...(data.idempotencyKey ? { idempotencyKey: data.idempotencyKey } : {}),
-      ...(actorId ? { createdBy: actorId } : {}),
-    } as any)
-    .returning();
+  const membership = await db.transaction(async (tx) => {
+    const [newMembership] = await tx
+      .insert(memberMemberships)
+      .values({
+        memberId,
+        planId: plan.id,
+        planName: plan.name,
+        startDate: newStartDate.toISOString().split('T')[0],
+        endDate: newEndDate.toISOString().split('T')[0],
+        status: 'ACTIVE',
+        ptSessionsTotal: plan.ptSessionsIncluded,
+        ...(data.notes ? { notes: data.notes } : {}),
+        ...(data.idempotencyKey ? { idempotencyKey: data.idempotencyKey } : {}),
+        ...(actorId ? { createdBy: actorId } : {}),
+      } as any)
+      .returning();
 
-  // Mark old as expired
-  if (current) {
-    await db.update(memberMemberships).set({ status: 'EXPIRED', updatedAt: new Date() }).where(eq(memberMemberships.id, current.id));
-  }
+    // Mark old as expired
+    if (current) {
+      await tx.update(memberMemberships).set({ status: 'EXPIRED', updatedAt: new Date() }).where(eq(memberMemberships.id, current.id));
+    }
 
-  // Ensure member is active
-  await db.update(members).set({ status: 'ACTIVE', updatedAt: new Date() }).where(eq(members.id, memberId));
+    // Ensure member is active
+    await tx.update(members).set({ status: 'ACTIVE', updatedAt: new Date() }).where(eq(members.id, memberId));
 
-  await emitEvent(membership!.id, memberId, 'RENEWED', actorId, actorName, data.notes, { plan: { name: plan.name } });
-  await auditLog({ organizationId: orgId, actorId, action: AuditAction.MEMBERSHIP_RENEWED, entityType: 'membership', entityId: membership!.id });
+    await emitEvent(newMembership!.id, memberId, 'RENEWED', actorId, actorName, data.notes, { plan: { name: plan.name } }, tx);
+    await auditLog({ organizationId: orgId, actorId, action: AuditAction.MEMBERSHIP_RENEWED, entityType: 'membership', entityId: newMembership!.id }, tx);
+    
+    return newMembership;
+  });
+
   sendRenewalNotification(orgId, memberId, membership!, plan, actorId, data.invoiceAmount)
     .catch((error) => {
       // A provider outage must not undo a completed membership renewal.
@@ -444,46 +450,60 @@ export async function renewMembershipService(
 }
 
 export async function expireDueMembershipsService() {
-  const candidates = await db.select({
-    membership: memberMemberships,
-    organizationId: members.organizationId,
-    timezone: organizations.timezone,
-    firstName: members.firstName,
-    lastName: members.lastName,
-    phone: members.phone,
-  })
-    .from(memberMemberships)
-    .innerJoin(members, eq(members.id, memberMemberships.memberId))
-    .innerJoin(organizations, eq(organizations.id, members.organizationId))
-    .where(and(
-      eq(memberMemberships.status, 'ACTIVE'),
-      isNull(members.deletedAt),
-    ));
+  const expiredMemberships = await db.transaction(async (tx) => {
+    // 1002 is a unique ID for the expiry sweep
+    const result = await tx.execute<{ pg_try_advisory_xact_lock: boolean }>(sql`SELECT pg_try_advisory_xact_lock(1002)`);
+    if (!result[0]?.pg_try_advisory_xact_lock) return [];
 
-  let expired = 0;
-  let notified = 0;
-  for (const candidate of candidates) {
-    const today = currentDateInTimeZone(candidate.timezone);
-    if (candidate.membership.endDate >= today) continue;
-    const [updated] = await db.update(memberMemberships)
-      .set({ status: 'EXPIRED', updatedAt: new Date() })
+    const candidates = await tx.select({
+      membership: memberMemberships,
+      organizationId: members.organizationId,
+      timezone: organizations.timezone,
+      firstName: members.firstName,
+      lastName: members.lastName,
+      phone: members.phone,
+    })
+      .from(memberMemberships)
+      .innerJoin(members, eq(members.id, memberMemberships.memberId))
+      .innerJoin(organizations, eq(organizations.id, members.organizationId))
       .where(and(
-        eq(memberMemberships.id, candidate.membership.id),
         eq(memberMemberships.status, 'ACTIVE'),
-        lt(memberMemberships.endDate, today),
-      ))
-      .returning();
-    if (!updated) continue;
+        isNull(members.deletedAt),
+      ));
 
-    expired += 1;
-    await auditLog({
-      organizationId: candidate.organizationId,
-      action: AuditAction.MEMBERSHIP_EXPIRED,
-      entityType: 'membership',
-      entityId: updated.id,
-      description: `Membership expired on ${updated.endDate}`,
-    });
+    const newlyExpired = [];
+    for (const candidate of candidates) {
+      const today = currentDateInTimeZone(candidate.timezone);
+      if (candidate.membership.endDate >= today) continue;
+      
+      const [updated] = await tx.update(memberMemberships)
+        .set({ status: 'EXPIRED', updatedAt: new Date() })
+        .where(and(
+          eq(memberMemberships.id, candidate.membership.id),
+          eq(memberMemberships.status, 'ACTIVE'),
+          lt(memberMemberships.endDate, today),
+        ))
+        .returning();
+      if (!updated) continue;
 
+      await auditLog({
+        organizationId: candidate.organizationId,
+        action: AuditAction.MEMBERSHIP_EXPIRED,
+        entityType: 'membership',
+        entityId: updated.id,
+        description: `Membership expired on ${updated.endDate}`,
+      }, tx);
+      
+      newlyExpired.push({ candidate, updated });
+    }
+    
+    return newlyExpired;
+  });
+
+  let expired = expiredMemberships.length;
+  let notified = 0;
+
+  for (const { candidate, updated } of expiredMemberships) {
     if (!candidate.phone) continue;
     try {
       const memberName = `${candidate.firstName} ${candidate.lastName}`.trim();
@@ -492,11 +512,7 @@ export async function expireDueMembershipsService() {
         memberId: updated.memberId,
         eventType: 'MEMBERSHIP_EXPIRED',
         phone: candidate.phone,
-        text: `Hello ${memberName} 👋
-
-Your *${updated.planName}* membership expired on *${formatDateForMessage(updated.endDate)}*.
-
-Renew now to continue uninterrupted access to the gym and your training plan. Please contact us and we’ll be happy to help. 💪`,
+        text: `Hello ${memberName} 👋\n\nYour *${updated.planName}* membership expired on *${formatDateForMessage(updated.endDate)}*.\n\nRenew now to continue uninterrupted access to the gym and your training plan. Please contact us and we’ll be happy to help. 💪`,
         idempotencyKey: `membership-expired:${updated.id}`,
       });
       if (delivery.status === 'SENT') notified += 1;
@@ -508,93 +524,92 @@ Renew now to continue uninterrupted access to the gym and your training plan. Pl
 }
 
 export async function sweepInactiveMembersService() {
-  const allBranches = await db.select({ id: branches.id, organizationId: branches.organizationId }).from(branches);
-  const orgs = await db.select({ id: organizations.id }).from(organizations);
-  
-  const sweepTargets = [
-    ...allBranches.map(b => ({ orgId: b.organizationId, branchId: b.id })),
-    ...orgs.map(o => ({ orgId: o.id, branchId: null }))
-  ];
-  
-  let inactiveMarked = 0;
-  for (const target of sweepTargets) {
-    const settings = await getMemberSettingsService(target.orgId, target.branchId);
-    const daysBeforeInactive = settings.daysBeforeInactive;
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - daysBeforeInactive);
-    const cutoffString = cutoffDate.toISOString().split('T')[0]!;
+  return await db.transaction(async (tx) => {
+    // 1003 is a unique ID for the inactivity sweep
+    const result = await tx.execute<{ pg_try_advisory_xact_lock: boolean }>(sql`SELECT pg_try_advisory_xact_lock(1003)`);
+    if (!result[0]?.pg_try_advisory_xact_lock) return { inactiveMarked: 0 };
 
-    // Find members for this target (branch or org fallback) who are not ARCHIVED
-    const sweepCandidates = await db
-      .select({ id: members.id, status: members.status })
-      .from(members)
-      .where(and(
-        eq(members.organizationId, target.orgId),
-        target.branchId ? eq(members.branchId, target.branchId) : isNull(members.branchId),
-        ne(members.status, 'ARCHIVED'),
-        isNull(members.deletedAt)
-      ));
+    const allBranches = await tx.select({ id: branches.id, organizationId: branches.organizationId }).from(branches);
+    const orgs = await tx.select({ id: organizations.id, timezone: organizations.timezone }).from(organizations);
+    
+    const orgTzMap = new Map<string, string>();
+    for (const o of orgs) orgTzMap.set(o.id, o.timezone);
 
-    if (sweepCandidates.length === 0) continue;
-
-    // Batch fetch all memberships to eliminate N+1 queries (production grade)
-    const candidateIds = sweepCandidates.map(m => m.id);
-    const allPlans = await db
-      .select({ memberId: memberMemberships.memberId, status: memberMemberships.status, endDate: memberMemberships.endDate })
-      .from(memberMemberships)
-      .where(inArray(memberMemberships.memberId, candidateIds));
-
-    // Group memberships in memory by memberId
-    const plansByMember = new Map<string, typeof allPlans>();
-    for (const plan of allPlans) {
-      if (!plansByMember.has(plan.memberId)) plansByMember.set(plan.memberId, []);
-      plansByMember.get(plan.memberId)!.push(plan);
-    }
-
-    for (const member of sweepCandidates) {
-      // Get plans for this member and sort descending by endDate
-      const memberPlans = plansByMember.get(member.id) || [];
-      memberPlans.sort((a, b) => b.endDate.localeCompare(a.endDate));
-
-      const hasActive = memberPlans.some(p => p.status === 'ACTIVE' || p.status === 'FROZEN');
-      const latestPlan = memberPlans[0];
+    const sweepTargets = [
+      ...allBranches.map(b => ({ orgId: b.organizationId, branchId: b.id, timezone: orgTzMap.get(b.organizationId)! })),
+      ...orgs.map(o => ({ orgId: o.id, branchId: null, timezone: o.timezone }))
+    ];
+    
+    let inactiveMarked = 0;
+    for (const target of sweepTargets) {
+      const settings = await getMemberSettingsService(target.orgId, target.branchId);
+      const daysBeforeInactive = settings.daysBeforeInactive;
       
-      let shouldBeInactive = false;
-      if (!hasActive && latestPlan && ['EXPIRED', 'CANCELLED'].includes(latestPlan.status) && latestPlan.endDate < cutoffString) {
-        shouldBeInactive = true;
+      // Timezone safe cutoff date logic
+      const orgTodayStr = currentDateInTimeZone(target.timezone);
+      const cutoffDate = new Date(`${orgTodayStr}T00:00:00`);
+      cutoffDate.setDate(cutoffDate.getDate() - daysBeforeInactive);
+      const cutoffString = cutoffDate.toISOString().split('T')[0]!;
+
+      // Find members for this target (branch or org fallback) who are not ARCHIVED
+      const sweepCandidates = await tx
+        .select({ id: members.id, status: members.status })
+        .from(members)
+        .where(and(
+          eq(members.organizationId, target.orgId),
+          target.branchId ? eq(members.branchId, target.branchId) : isNull(members.branchId),
+          ne(members.status, 'ARCHIVED'),
+          isNull(members.deletedAt)
+        ));
+
+      if (sweepCandidates.length === 0) continue;
+
+      // Batch fetch all memberships to eliminate N+1 queries (production grade)
+      const candidateIds = sweepCandidates.map(m => m.id);
+      const allPlans = await tx
+        .select({ memberId: memberMemberships.memberId, status: memberMemberships.status, endDate: memberMemberships.endDate })
+        .from(memberMemberships)
+        .where(inArray(memberMemberships.memberId, candidateIds));
+
+      // Group memberships in memory by memberId
+      const plansByMember = new Map<string, typeof allPlans>();
+      for (const plan of allPlans) {
+        if (!plansByMember.has(plan.memberId)) plansByMember.set(plan.memberId, []);
+        plansByMember.get(plan.memberId)!.push(plan);
       }
 
-      if (shouldBeInactive && member.status !== 'INACTIVE') {
-        // Mark member as INACTIVE
-        await db.update(members)
-          .set({ status: 'INACTIVE', updatedAt: new Date() })
-          .where(eq(members.id, member.id));
-        inactiveMarked += 1;
+      for (const member of sweepCandidates) {
+        // Get plans for this member and sort descending by endDate
+        const memberPlans = plansByMember.get(member.id) || [];
+        memberPlans.sort((a, b) => b.endDate.localeCompare(a.endDate));
+
+        const hasActive = memberPlans.some(p => p.status === 'ACTIVE' || p.status === 'FROZEN');
+        const latestPlan = memberPlans[0];
         
-        await auditLog({
-          organizationId: target.orgId,
-          action: AuditAction.MEMBER_UPDATED,
-          entityType: 'member',
-          entityId: member.id,
-          description: `Member status updated to INACTIVE due to ${daysBeforeInactive} days of expiry`,
-        });
-      } else if (!shouldBeInactive && member.status === 'INACTIVE') {
-        // Revert member back to ACTIVE 
-        await db.update(members)
-          .set({ status: 'ACTIVE', updatedAt: new Date() })
-          .where(eq(members.id, member.id));
-        
-        await auditLog({
-          organizationId: target.orgId,
-          action: AuditAction.MEMBER_UPDATED,
-          entityType: 'member',
-          entityId: member.id,
-          description: `Member status reverted to ACTIVE (no longer meets ${daysBeforeInactive} days expiry threshold)`,
-        });
+        let shouldBeInactive = false;
+        if (!hasActive && latestPlan && ['EXPIRED', 'CANCELLED'].includes(latestPlan.status) && latestPlan.endDate < cutoffString) {
+          shouldBeInactive = true;
+        }
+
+        if (shouldBeInactive && member.status !== 'INACTIVE') {
+          // Mark member as INACTIVE (Manual account status lifecycle respects not reverting)
+          await tx.update(members)
+            .set({ status: 'INACTIVE', updatedAt: new Date() })
+            .where(eq(members.id, member.id));
+          inactiveMarked += 1;
+          
+          await auditLog({
+            organizationId: target.orgId,
+            action: AuditAction.MEMBER_UPDATED,
+            entityType: 'member',
+            entityId: member.id,
+            description: `Member status updated to INACTIVE due to ${daysBeforeInactive} days of expiry`,
+          }, tx);
+        }
       }
     }
-  }
-  return { inactiveMarked };
+    return { inactiveMarked };
+  });
 }
 
 // ── Freeze Membership ─────────────────────────────────────────────────────────
@@ -621,21 +636,26 @@ export async function freezeMembershipService(
   // Extend end date by freeze period
   const newEndDate = addDays(parseISO(membership.endDate), freezeDays);
 
-  const [updated] = await db
-    .update(memberMemberships)
-    .set({
-      status: 'FROZEN',
-      freezeStartDate: data.freezeStart,
-      freezeEndDate: data.freezeEnd,
-      frozenDays: membership.frozenDays + freezeDays,
-      endDate: newEndDate.toISOString().split('T')[0],
-      updatedAt: new Date(),
-    })
-    .where(eq(memberMemberships.id, membership.id))
-    .returning();
+  const updated = await db.transaction(async (tx) => {
+    const [res] = await tx
+      .update(memberMemberships)
+      .set({
+        status: 'FROZEN',
+        freezeStartDate: data.freezeStart,
+        freezeEndDate: data.freezeEnd,
+        frozenDays: membership.frozenDays + freezeDays,
+        endDate: newEndDate.toISOString().split('T')[0],
+        updatedAt: new Date(),
+      })
+      .where(eq(memberMemberships.id, membership.id))
+      .returning();
 
-  await emitEvent(membership.id, memberId, 'FROZEN', actorId, actorName, data.reason, { freezeStart: data.freezeStart, freezeEnd: data.freezeEnd, freezeDays });
-  await auditLog({ organizationId: orgId, actorId, action: AuditAction.MEMBERSHIP_FROZEN, entityType: 'membership', entityId: membership.id });
+    await emitEvent(membership.id, memberId, 'FROZEN', actorId, actorName, data.reason, { freezeStart: data.freezeStart, freezeEnd: data.freezeEnd, freezeDays }, tx);
+    await auditLog({ organizationId: orgId, actorId, action: AuditAction.MEMBERSHIP_FROZEN, entityType: 'membership', entityId: membership.id }, tx);
+    
+    return res;
+  });
+
   return updated;
 }
 
@@ -650,14 +670,19 @@ export async function resumeMembershipService(orgId: string, memberId: string, a
 
   if (!membership) throw AppError.notFound(ErrorCode.MEMBERSHIP_NOT_FROZEN, 'No frozen membership found');
 
-  const [updated] = await db
-    .update(memberMemberships)
-    .set({ status: 'ACTIVE', updatedAt: new Date() })
-    .where(eq(memberMemberships.id, membership.id))
-    .returning();
+  const updated = await db.transaction(async (tx) => {
+    const [res] = await tx
+      .update(memberMemberships)
+      .set({ status: 'ACTIVE', updatedAt: new Date() })
+      .where(eq(memberMemberships.id, membership.id))
+      .returning();
 
-  await emitEvent(membership.id, memberId, 'RESUMED', actorId, actorName);
-  await auditLog({ organizationId: orgId, actorId, action: AuditAction.MEMBERSHIP_RESUMED, entityType: 'membership', entityId: membership.id });
+    await emitEvent(membership.id, memberId, 'RESUMED', actorId, actorName, undefined, undefined, tx);
+    await auditLog({ organizationId: orgId, actorId, action: AuditAction.MEMBERSHIP_RESUMED, entityType: 'membership', entityId: membership.id }, tx);
+    
+    return res;
+  });
+
   return updated;
 }
 
@@ -678,14 +703,19 @@ export async function cancelMembershipService(orgId: string, memberId: string, r
     throw AppError.notFound(ErrorCode.MEMBERSHIP_NOT_FOUND, 'No cancellable membership found');
   }
 
-  const [updated] = await db
-    .update(memberMemberships)
-    .set({ status: 'CANCELLED', updatedAt: new Date() })
-    .where(eq(memberMemberships.id, membership.id))
-    .returning();
+  const updated = await db.transaction(async (tx) => {
+    const [res] = await tx
+      .update(memberMemberships)
+      .set({ status: 'CANCELLED', updatedAt: new Date() })
+      .where(eq(memberMemberships.id, membership.id))
+      .returning();
 
-  await emitEvent(membership.id, memberId, 'CANCELLED', actorId, actorName, reason);
-  await auditLog({ organizationId: orgId, actorId, action: AuditAction.MEMBERSHIP_CANCELLED, entityType: 'membership', entityId: membership.id, description: reason });
+    await emitEvent(membership.id, memberId, 'CANCELLED', actorId, actorName, reason, undefined, tx);
+    await auditLog({ organizationId: orgId, actorId, action: AuditAction.MEMBERSHIP_CANCELLED, entityType: 'membership', entityId: membership.id, description: reason }, tx);
+    
+    return res;
+  });
+
   return updated;
 }
 
@@ -702,13 +732,18 @@ export async function extendMembershipService(orgId: string, memberId: string, d
 
   const newEndDate = addDays(parseISO(membership.endDate), days);
 
-  const [updated] = await db
-    .update(memberMemberships)
-    .set({ endDate: newEndDate.toISOString().split('T')[0], updatedAt: new Date() })
-    .where(eq(memberMemberships.id, membership.id))
-    .returning();
+  const updated = await db.transaction(async (tx) => {
+    const [res] = await tx
+      .update(memberMemberships)
+      .set({ endDate: newEndDate.toISOString().split('T')[0], updatedAt: new Date() })
+      .where(eq(memberMemberships.id, membership.id))
+      .returning();
 
-  await emitEvent(membership.id, memberId, 'EXTENDED', actorId, actorName, reason, { extendedBy: days });
-  await auditLog({ organizationId: orgId, actorId, action: AuditAction.MEMBERSHIP_EXTENDED, entityType: 'membership', entityId: membership.id, description: `Extended by ${days} days` });
+    await emitEvent(membership.id, memberId, 'EXTENDED', actorId, actorName, reason, { extendedBy: days }, tx);
+    await auditLog({ organizationId: orgId, actorId, action: AuditAction.MEMBERSHIP_EXTENDED, entityType: 'membership', entityId: membership.id, description: `Extended by ${days} days` }, tx);
+    
+    return res;
+  });
+
   return updated;
 }

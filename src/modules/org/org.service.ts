@@ -238,6 +238,17 @@ export async function upsertSettingService(
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw AppError.badRequest(ErrorCode.BAD_REQUEST, 'Settings value must be an object');
   }
+  
+  if (branchId) {
+    const [branch] = await db
+      .select({ id: branches.id })
+      .from(branches)
+      .where(and(eq(branches.id, branchId), eq(branches.organizationId, orgId)))
+      .limit(1);
+    if (!branch) {
+      throw AppError.notFound(ErrorCode.NOT_FOUND, 'Branch not found or does not belong to this organization');
+    }
+  }
 
   const settingValue = value as Record<string, unknown>;
   if (category === 'payment-policy') {

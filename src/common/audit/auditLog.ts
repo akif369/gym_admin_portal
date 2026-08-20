@@ -23,9 +23,9 @@ export interface AuditLogParams {
 
 // ── Write Audit Log ───────────────────────────────────────────────────────────
 
-export async function auditLog(params: AuditLogParams): Promise<void> {
+export async function auditLog(params: AuditLogParams, tx: any = db): Promise<void> {
   try {
-    await db.insert(staffAuditLogs).values({
+    await tx.insert(staffAuditLogs).values({
       organizationId: params.organizationId,
       actorId: params.actorId ?? null,
       actorEmail: params.actorEmail,

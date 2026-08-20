@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, integer, boolean, numeric, jsonb, date, pgEnum, check } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, integer, boolean, numeric, jsonb, date, pgEnum, check, index } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { organizations } from './org.schema';
 import { members } from './members.schema';
@@ -79,6 +79,7 @@ export const memberMemberships = pgTable('member_memberships', {
   check('memberships_pt_total_check', sql`${table.ptSessionsTotal} >= 0`),
   check('memberships_pt_used_check', sql`${table.ptSessionsUsed} >= 0 AND ${table.ptSessionsUsed} <= ${table.ptSessionsTotal}`),
   check('memberships_frozen_days_check', sql`${table.frozenDays} >= 0`),
+  index('membership_status_idx').on(table.memberId, table.status, table.endDate),
 ]);
 
 // ── Membership Events (Immutable Ledger) ──────────────────────────────────────

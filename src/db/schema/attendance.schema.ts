@@ -1,4 +1,5 @@
-import { pgTable, uuid, text, timestamp, pgEnum, foreignKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, pgEnum, foreignKey, index } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { organizations } from './org.schema';
 import { branches } from './org.schema';
 import { members } from './members.schema';
@@ -11,6 +12,13 @@ export const checkInMethodEnum = pgEnum('check_in_method', [
   'QR',
   'RFID',
   'APP',
+]);
+
+export const checkOutMethodEnum = pgEnum('check_out_method', [
+  'MANUAL',
+  'AUTO',
+  'ADMIN',
+  'SYSTEM',
 ]);
 
 // ── Attendance Logs ───────────────────────────────────────────────────────────
@@ -28,6 +36,8 @@ export const attendanceLogs = pgTable('attendance_logs', {
   checkInAt: timestamp('check_in_at', { withTimezone: true }).notNull(),
   checkOutAt: timestamp('check_out_at', { withTimezone: true }),
   checkInMethod: checkInMethodEnum('check_in_method').notNull().default('MANUAL'),
+  checkOutMethod: checkOutMethodEnum('check_out_method'),
+  checkOutReason: text('check_out_reason'),
   checkInBy: uuid('check_in_by').references(() => users.id), // staff who did the check-in
   checkOutBy: uuid('check_out_by').references(() => users.id),
   notes: text('notes'),
@@ -41,6 +51,7 @@ export const attendanceLogs = pgTable('attendance_logs', {
     columns: [table.branchId, table.organizationId],
     foreignColumns: [branches.id, branches.organizationId],
   }),
+  index('attendance_auto_checkout_idx').on(table.organizationId, table.branchId, table.checkInAt).where(sql`check_out_at IS NULL`),
 ]);
 
 // ── Type Exports ──────────────────────────────────────────────────────────────
