@@ -430,12 +430,11 @@ export async function renewMembershipService(
 
   await emitEvent(membership!.id, memberId, 'RENEWED', actorId, actorName, data.notes, { plan: { name: plan.name } });
   await auditLog({ organizationId: orgId, actorId, action: AuditAction.MEMBERSHIP_RENEWED, entityType: 'membership', entityId: membership!.id });
-  try {
-    await sendRenewalNotification(orgId, memberId, membership!, plan, actorId, data.invoiceAmount);
-  } catch (error) {
-    // A provider outage must not undo a completed membership renewal.
-    log.error({ err: error, memberId, membershipId: membership!.id }, 'Renewal notification workflow failed');
-  }
+  sendRenewalNotification(orgId, memberId, membership!, plan, actorId, data.invoiceAmount)
+    .catch((error) => {
+      // A provider outage must not undo a completed membership renewal.
+      log.error({ err: error, memberId, membershipId: membership!.id }, 'Renewal notification workflow failed');
+    });
   return membership;
 }
 
