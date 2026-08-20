@@ -196,6 +196,19 @@ export async function getInvoiceSettingsService(orgId: string): Promise<InvoiceS
   };
 }
 
+export type MemberSettings = {
+  daysBeforeInactive: number;
+};
+
+export async function getMemberSettingsService(orgId: string): Promise<MemberSettings> {
+  const allSettings = await getSettingsService(orgId);
+  const value = allSettings['member'];
+  const member = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {};
+  return {
+    daysBeforeInactive: typeof member.daysBeforeInactive === 'number' && Number.isInteger(member.daysBeforeInactive) && member.daysBeforeInactive >= 0 ? member.daysBeforeInactive : 30,
+  };
+}
+
 export async function upsertSettingService(
   orgId: string,
   category: string,
@@ -256,6 +269,12 @@ export async function upsertSettingService(
       throw AppError.badRequest(ErrorCode.BAD_REQUEST, 'attachInvoicePdf must be a boolean');
     }
     value = { prefix: prefix.toUpperCase(), footer: footer.trim(), dueDays, autoSendOnRenewal, attachInvoicePdf: attachInvoicePdf === true };
+  } else if (category === 'member') {
+    const daysBeforeInactive = settingValue.daysBeforeInactive;
+    if (typeof daysBeforeInactive !== 'number' || !Number.isInteger(daysBeforeInactive) || daysBeforeInactive < 0 || daysBeforeInactive > 365) {
+      throw AppError.badRequest(ErrorCode.BAD_REQUEST, 'Days before inactive must be a whole number between 0 and 365');
+    }
+    value = { daysBeforeInactive };
   }
 
   // Upsert — update if exists, insert if not

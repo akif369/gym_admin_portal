@@ -7,6 +7,7 @@ import { branches } from './org.schema';
 
 export const memberStatusEnum = pgEnum('member_status', [
   'ACTIVE',
+  'INACTIVE',
   'FROZEN',
   'EXPIRED',
   'ARCHIVED',

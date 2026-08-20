@@ -2,7 +2,7 @@ import { addDays, parseISO } from 'date-fns';
 import { db } from '../../db/index';
 import { membershipPlans, memberMemberships, membershipEvents } from '../../db/schema/memberships.schema';
 import { members } from '../../db/schema/members.schema';
-import { eq, and, isNull, desc, asc, count, sql, lt } from 'drizzle-orm';
+import { eq, and, isNull, desc, asc, count, sql, lt, ne } from 'drizzle-orm';
 import { AppError, ErrorCode } from '../../common/errors/AppError';
 import { parsePagination, paginationToLimitOffset, buildPaginatedResponse } from '../../common/pagination/paginate';
 import { auditLog } from '../../common/audit/auditLog';
@@ -10,7 +10,7 @@ import { AuditAction } from '../../db/schema/audit.schema';
 import { createLogger } from '../../common/logger/index';
 import { generateMembershipInvoiceService, getPublicInvoiceService, generateInvoicePdfBuffer } from '../payments/payments.service';
 import { sendTextMessage, sendMediaMessage } from '../notifications/notifications.service';
-import { getInvoiceSettingsService } from '../org/org.service';
+import { getInvoiceSettingsService, getTaxSettingsService, getMemberSettingsService } from '../org/org.service';
 import { invoices } from '../../db/schema/payments.schema';
 import { organizations } from '../../db/schema/org.schema';
 
@@ -355,6 +355,8 @@ export async function activateMembershipService(orgId: string, memberId: string,
     .where(eq(memberMemberships.id, membership.id))
     .returning();
 
+  await db.update(members).set({ status: 'ACTIVE', updatedAt: new Date() }).where(eq(members.id, memberId));
+
   await emitEvent(membership.id, memberId, 'ACTIVATED', actorId, actorName);
   await auditLog({ organizationId: orgId, actorId, action: AuditAction.MEMBERSHIP_ACTIVATED, entityType: 'membership', entityId: membership.id });
   return updated;
@@ -428,6 +430,9 @@ export async function renewMembershipService(
     await db.update(memberMemberships).set({ status: 'EXPIRED', updatedAt: new Date() }).where(eq(memberMemberships.id, current.id));
   }
 
+  // Ensure member is active
+  await db.update(members).set({ status: 'ACTIVE', updatedAt: new Date() }).where(eq(members.id, memberId));
+
   await emitEvent(membership!.id, memberId, 'RENEWED', actorId, actorName, data.notes, { plan: { name: plan.name } });
   await auditLog({ organizationId: orgId, actorId, action: AuditAction.MEMBERSHIP_RENEWED, entityType: 'membership', entityId: membership!.id });
   sendRenewalNotification(orgId, memberId, membership!, plan, actorId, data.invoiceAmount)
@@ -500,6 +505,63 @@ Renew now to continue uninterrupted access to the gym and your training plan. Pl
     }
   }
   return { expired, notified };
+}
+
+export async function sweepInactiveMembersService() {
+  const orgs = await db.select({ id: organizations.id, timezone: organizations.timezone }).from(organizations);
+  
+  let inactiveMarked = 0;
+  for (const org of orgs) {
+    const settings = await getMemberSettingsService(org.id);
+    const daysBeforeInactive = settings.daysBeforeInactive;
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysBeforeInactive);
+    const cutoffString = cutoffDate.toISOString().split('T')[0]!;
+
+    // Find members in this org who are not currently INACTIVE or ARCHIVED
+    const activeMembers = await db
+      .select({ id: members.id })
+      .from(members)
+      .where(and(
+        eq(members.organizationId, org.id),
+        ne(members.status, 'INACTIVE'),
+        ne(members.status, 'ARCHIVED'),
+        isNull(members.deletedAt)
+      ));
+
+    for (const member of activeMembers) {
+      // Get all memberships for this member
+      const memberPlans = await db
+        .select()
+        .from(memberMemberships)
+        .where(eq(memberMemberships.memberId, member.id))
+        .orderBy(desc(memberMemberships.endDate));
+
+      // If they have any ACTIVE or FROZEN membership, skip
+      if (memberPlans.some(p => p.status === 'ACTIVE' || p.status === 'FROZEN')) continue;
+
+      // Find the latest membership
+      const latestPlan = memberPlans[0];
+      if (!latestPlan) continue; // no memberships at all? Leave them active or handle otherwise
+
+      if (latestPlan.status === 'EXPIRED' && latestPlan.endDate < cutoffString) {
+        // Mark member as INACTIVE
+        await db.update(members)
+          .set({ status: 'INACTIVE', updatedAt: new Date() })
+          .where(eq(members.id, member.id));
+        inactiveMarked += 1;
+        
+        await auditLog({
+          organizationId: org.id,
+          action: AuditAction.MEMBER_UPDATED,
+          entityType: 'member',
+          entityId: member.id,
+          description: `Member status updated to INACTIVE due to ${daysBeforeInactive} days of expiry`,
+        });
+      }
+    }
+  }
+  return { inactiveMarked };
 }
 
 // ── Freeze Membership ─────────────────────────────────────────────────────────

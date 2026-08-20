@@ -57,6 +57,13 @@
       "when": 1787169387701,
       "tag": "0007_cloudy_living_lightning",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787235702071,
+      "tag": "0008_add_inactive_status",
+      "breakpoints": true
     }
   ]
 }
