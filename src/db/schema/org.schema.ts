@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, integer, boolean, jsonb, pgEnum, uniqueIndex, check } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, integer, boolean, jsonb, pgEnum, uniqueIndex, unique, check } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
@@ -64,7 +64,7 @@ export const branches = pgTable('branches', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
-  uniqueIndex('branches_id_org_unique').on(table.id, table.organizationId),
+  unique('branches_id_org_unique').on(table.id, table.organizationId),
   check('branches_capacity_check', sql`${table.capacity} >= 0`),
 ]);
 

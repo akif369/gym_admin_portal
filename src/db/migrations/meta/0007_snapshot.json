@@ -1,5 +1,5 @@
 {
-  "id": "578edf4f-52f8-4b70-940f-aa44b3ef36a3",
+  "id": "847c436f-9a7d-48da-935f-e6d26d7def80",
   "prevId": "8f1417c3-6fec-47b9-824b-98d6cef02b31",
   "version": "7",
   "dialect": "postgresql",
@@ -87,29 +87,7 @@
           "default": "now()"
         }
       },
-      "indexes": {
-        "branches_id_org_unique": {
-          "name": "branches_id_org_unique",
-          "columns": [
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
         "branches_organization_id_organizations_id_fk": {
           "name": "branches_organization_id_organizations_id_fk",
@@ -126,7 +104,16 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "branches_id_org_unique": {
+          "name": "branches_id_org_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "organization_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {
         "branches_capacity_check": {
