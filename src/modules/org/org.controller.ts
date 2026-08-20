@@ -43,11 +43,15 @@ export const orgController = {
 
   async updateSettingsCategory(category: string) {
     return async (request: FastifyRequest, reply: FastifyReply) => {
+      const body = request.body as Record<string, unknown> | null;
+      const branchId = body && typeof body.branchId === 'string' ? body.branchId : null;
+      
       const result = await upsertSettingService(
         request.user.orgId,
         category,
         request.body,
         request.user.userId,
+        branchId
       );
       return reply.send({ setting: result });
     };

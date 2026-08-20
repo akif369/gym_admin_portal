@@ -12,7 +12,7 @@ import { generateMembershipInvoiceService, getPublicInvoiceService, generateInvo
 import { sendTextMessage, sendMediaMessage } from '../notifications/notifications.service';
 import { getInvoiceSettingsService, getTaxSettingsService, getMemberSettingsService } from '../org/org.service';
 import { invoices } from '../../db/schema/payments.schema';
-import { organizations } from '../../db/schema/org.schema';
+import { organizations, branches } from '../../db/schema/org.schema';
 
 const log = createLogger('memberships-service');
 
@@ -508,22 +508,29 @@ Renew now to continue uninterrupted access to the gym and your training plan. Pl
 }
 
 export async function sweepInactiveMembersService() {
-  const orgs = await db.select({ id: organizations.id, timezone: organizations.timezone }).from(organizations);
+  const allBranches = await db.select({ id: branches.id, organizationId: branches.organizationId }).from(branches);
+  const orgs = await db.select({ id: organizations.id }).from(organizations);
+  
+  const sweepTargets = [
+    ...allBranches.map(b => ({ orgId: b.organizationId, branchId: b.id })),
+    ...orgs.map(o => ({ orgId: o.id, branchId: null }))
+  ];
   
   let inactiveMarked = 0;
-  for (const org of orgs) {
-    const settings = await getMemberSettingsService(org.id);
+  for (const target of sweepTargets) {
+    const settings = await getMemberSettingsService(target.orgId, target.branchId);
     const daysBeforeInactive = settings.daysBeforeInactive;
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysBeforeInactive);
     const cutoffString = cutoffDate.toISOString().split('T')[0]!;
 
-    // Find members in this org who are not ARCHIVED
+    // Find members for this target (branch or org fallback) who are not ARCHIVED
     const sweepCandidates = await db
       .select({ id: members.id, status: members.status })
       .from(members)
       .where(and(
-        eq(members.organizationId, org.id),
+        eq(members.organizationId, target.orgId),
+        target.branchId ? eq(members.branchId, target.branchId) : isNull(members.branchId),
         ne(members.status, 'ARCHIVED'),
         isNull(members.deletedAt)
       ));
@@ -565,7 +572,7 @@ export async function sweepInactiveMembersService() {
         inactiveMarked += 1;
         
         await auditLog({
-          organizationId: org.id,
+          organizationId: target.orgId,
           action: AuditAction.MEMBER_UPDATED,
           entityType: 'member',
           entityId: member.id,
@@ -578,7 +585,7 @@ export async function sweepInactiveMembersService() {
           .where(eq(members.id, member.id));
         
         await auditLog({
-          organizationId: org.id,
+          organizationId: target.orgId,
           action: AuditAction.MEMBER_UPDATED,
           entityType: 'member',
           entityId: member.id,

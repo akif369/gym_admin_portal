@@ -1,6 +1,6 @@
 import { db } from '../../db/index';
 import { organizations, branches, settings, users, members } from '../../db/schema/index';
-import { eq, and, isNull, ne, sql } from 'drizzle-orm';
+import { eq, and, isNull, ne, sql, or } from 'drizzle-orm';
 import { AppError, ErrorCode } from '../../common/errors/AppError';
 import { createLogger } from '../../common/logger/index';
 import { auditLog } from '../../common/audit/auditLog';
@@ -128,16 +128,35 @@ export async function updateBranchService(orgId: string, branchId: string, data:
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 
-export async function getSettingsService(orgId: string) {
+export async function getSettingsService(orgId: string, branchId?: string | null) {
   const allSettings = await db
     .select()
     .from(settings)
-    .where(and(eq(settings.organizationId, orgId), isNull(settings.branchId)));
+    .where(
+      branchId 
+        ? and(eq(settings.organizationId, orgId), or(isNull(settings.branchId), eq(settings.branchId, branchId)))
+        : and(eq(settings.organizationId, orgId), isNull(settings.branchId))
+    );
 
   const settingsMap: Record<string, unknown> = {};
-  for (const s of allSettings) {
+  
+  // First apply org-level settings
+  for (const s of allSettings.filter(s => s.branchId === null)) {
     settingsMap[s.category] = s.value;
   }
+  
+  // Then override with branch-level settings if any exist
+  if (branchId) {
+    for (const s of allSettings.filter(s => s.branchId === branchId)) {
+      const existing = settingsMap[s.category];
+      if (typeof existing === 'object' && existing !== null && typeof s.value === 'object' && s.value !== null) {
+        settingsMap[s.category] = { ...existing, ...(s.value as Record<string, unknown>) };
+      } else {
+        settingsMap[s.category] = s.value;
+      }
+    }
+  }
+
   return settingsMap;
 }
 
@@ -172,8 +191,8 @@ export type TaxSettings = {
   taxIncluded: boolean;
 };
 
-export async function getTaxSettingsService(orgId: string): Promise<TaxSettings> {
-  const allSettings = await getSettingsService(orgId);
+export async function getTaxSettingsService(orgId: string, branchId?: string | null): Promise<TaxSettings> {
+  const allSettings = await getSettingsService(orgId, branchId);
   const value = allSettings['tax'];
   const tax = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {};
   const taxRate = typeof tax.taxRate === 'number' && Number.isFinite(tax.taxRate) && tax.taxRate >= 0 && tax.taxRate <= 100
@@ -183,8 +202,8 @@ export async function getTaxSettingsService(orgId: string): Promise<TaxSettings>
   return { taxRate, taxIncluded: tax.taxIncluded !== false };
 }
 
-export async function getInvoiceSettingsService(orgId: string): Promise<InvoiceSettings> {
-  const allSettings = await getSettingsService(orgId);
+export async function getInvoiceSettingsService(orgId: string, branchId?: string | null): Promise<InvoiceSettings> {
+  const allSettings = await getSettingsService(orgId, branchId);
   const value = allSettings['invoice'];
   const invoice = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {};
   return {
@@ -200,8 +219,8 @@ export type MemberSettings = {
   daysBeforeInactive: number;
 };
 
-export async function getMemberSettingsService(orgId: string): Promise<MemberSettings> {
-  const allSettings = await getSettingsService(orgId);
+export async function getMemberSettingsService(orgId: string, branchId?: string | null): Promise<MemberSettings> {
+  const allSettings = await getSettingsService(orgId, branchId);
   const value = allSettings['member'];
   const member = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {};
   return {
@@ -214,6 +233,7 @@ export async function upsertSettingService(
   category: string,
   value: unknown,
   updatedBy?: string,
+  branchId?: string | null,
 ) {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw AppError.badRequest(ErrorCode.BAD_REQUEST, 'Settings value must be an object');
@@ -285,7 +305,7 @@ export async function upsertSettingService(
       and(
         eq(settings.organizationId, orgId),
         eq(settings.category, category),
-        isNull(settings.branchId),
+        branchId ? eq(settings.branchId, branchId) : isNull(settings.branchId),
       ),
     )
     .limit(1);
@@ -309,6 +329,7 @@ export async function upsertSettingService(
   } else {
     const [created] = await db.insert(settings).values({
       organizationId: orgId,
+      branchId: branchId || null,
       category,
       value: value as Record<string, unknown>,
       updatedBy,
